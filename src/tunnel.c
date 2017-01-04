@@ -57,8 +57,7 @@
 
 #include "netutils.h"
 #include "utils.h"
-#include "obfs_http.h"
-#include "obfs_tls.h"
+#include "plugin.h"
 #include "tunnel.h"
 
 #ifndef EAGAIN
@@ -102,7 +101,7 @@ static int auth      = 0;
 static int nofile = 0;
 #endif
 
-static obfs_para_t *obfs_para  = NULL;
+ev_timer plugin_watcher;
 
 #ifndef __MINGW32__
 static int
@@ -114,8 +113,15 @@ setnonblocking(int fd)
     }
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
-
 #endif
+
+static void
+plugin_update_cb(EV_P_ ev_timer *watcher, int revents)
+{
+    if (get_plugin_state() != PLUGIN_RUNNING) {
+        FATAL("plugin exited unexpectedly");
+    }
+}
 
 int
 create_and_bind(const char *addr, const char *port)
@@ -216,10 +222,6 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
         close_and_free_remote(EV_A_ remote);
         close_and_free_server(EV_A_ server);
         return;
-    }
-
-    if (obfs_para) {
-        obfs_para->obfs_request(remote->buf, BUF_SIZE, server->obfs);
     }
 
     int s = send(remote->fd, remote->buf->data, remote->buf->len, 0);
@@ -336,15 +338,6 @@ remote_recv_cb(EV_P_ ev_io *w, int revents)
     }
 
     server->buf->len = r;
-
-    if (obfs_para) {
-        if (obfs_para->deobfs_response(server->buf, BUF_SIZE, server->obfs)) {
-            LOGE("invalid obfuscating");
-            close_and_free_remote(EV_A_ remote);
-            close_and_free_server(EV_A_ server);
-            return;
-        }
-    }
 
     int err = ss_decrypt(server->buf, server->d_ctx, BUF_SIZE);
 
@@ -463,10 +456,6 @@ remote_send_cb(EV_P_ ev_io *w, int revents)
                 close_and_free_remote(EV_A_ remote);
                 close_and_free_server(EV_A_ server);
                 return;
-            }
-
-            if (obfs_para) {
-                obfs_para->obfs_request(abuf, BUF_SIZE, server->obfs);
             }
 
             int s = send(remote->fd, abuf->data, abuf->len, 0);
@@ -597,11 +586,6 @@ new_server(int fd, int method)
     server->send_ctx->server    = server;
     server->send_ctx->connected = 0;
 
-    if (obfs_para != NULL) {
-        server->obfs = (obfs_t *)ss_malloc(sizeof(obfs_t));
-        memset(server->obfs, 0, sizeof(obfs_t));
-    }
-
     if (method) {
         server->e_ctx = ss_malloc(sizeof(struct enc_ctx));
         server->d_ctx = ss_malloc(sizeof(struct enc_ctx));
@@ -621,12 +605,6 @@ new_server(int fd, int method)
 static void
 free_server(server_t *server)
 {
-    if (server->obfs != NULL) {
-        bfree(server->obfs->buf);
-        if (server->obfs->extra != NULL)
-            ss_free(server->obfs->extra);
-        ss_free(server->obfs);
-    }
     if (server->remote != NULL) {
         server->remote->server = NULL;
     }
@@ -767,7 +745,12 @@ main(int argc, char **argv)
     char *pid_path   = NULL;
     char *conf_path  = NULL;
     char *iface      = NULL;
-    char *obfs_host   = NULL;
+
+    char *plugin      = NULL;
+    char *plugin_args = NULL;
+    char *plugin_host = NULL;
+    char *plugin_port = NULL;
+    char tmp_port[8];
 
     int remote_num = 0;
     ss_addr_t remote_addr[MAX_REMOTE_NUM];
@@ -778,12 +761,12 @@ main(int argc, char **argv)
 
     int option_index                    = 0;
     static struct option long_options[] = {
-        { "mtu",       required_argument, 0, 0 },
-        { "mptcp",     no_argument,       0, 0 },
-        { "obfs",      required_argument, 0, 0 },
-        { "obfs-host", required_argument, 0, 0 },
-        { "help",      no_argument,       0, 0 },
-        {           0,                 0, 0, 0 }
+        { "mtu",         required_argument, 0, 0 },
+        { "mptcp",       no_argument,       0, 0 },
+        { "plugin",      required_argument, 0, 0 },
+        { "plugin-args", required_argument, 0, 0 },
+        { "help",        no_argument,       0, 0 },
+        { 0,             0,                 0, 0 }
     };
 
     opterr = 0;
@@ -806,13 +789,9 @@ main(int argc, char **argv)
                 mptcp = 1;
                 LOGI("enable multipath TCP");
             } else if (option_index == 2) {
-                if (strcmp(optarg, obfs_http->name) == 0)
-                    obfs_para = obfs_http;
-                else if (strcmp(optarg, obfs_tls->name) == 0)
-                    obfs_para = obfs_tls;
-                LOGI("obfuscating enabled");
+                plugin = optarg;
             } else if (option_index == 3) {
-                obfs_host = optarg;
+                plugin_args = optarg;
             } else if (option_index == 4) {
                 usage();
                 exit(EXIT_SUCCESS);
@@ -936,14 +915,11 @@ main(int argc, char **argv)
         if (user == NULL) {
             user = conf->user;
         }
-        if (obfs_para == NULL && conf->obfs != NULL) {
-            if (strcmp(conf->obfs, obfs_http->name) == 0)
-                obfs_para = obfs_http;
-            else if (strcmp(conf->obfs, obfs_tls->name) == 0)
-                obfs_para = obfs_tls;
+        if (plugin == NULL) {
+            plugin = conf->plugin;
         }
-        if (obfs_host == NULL) {
-            obfs_host = conf->obfs_host;
+        if (plugin_args == NULL) {
+            plugin_args = conf->plugin_args;
         }
         if (auth == 0) {
             auth = conf->auth;
@@ -971,6 +947,18 @@ main(int argc, char **argv)
         local_port == NULL || password == NULL) {
         usage();
         exit(EXIT_FAILURE);
+    }
+
+    if (plugin != NULL) {
+        uint16_t port = get_local_port();
+        if (port == 0) {
+            FATAL("failed to find a free port");
+        }
+        snprintf(tmp_port, 8, "%d", port);
+        plugin_host = "127.0.0.1";
+        plugin_port = tmp_port;
+
+        LOGI("plugin %s enabled", plugin);
     }
 
     if (method == NULL) {
@@ -1011,21 +999,34 @@ main(int argc, char **argv)
         LOGI("onetime authentication enabled");
     }
 
-    if (obfs_para) {
-        if (obfs_host != NULL)
-            obfs_para->host = obfs_host;
-        else
-            obfs_para->host = "cloudfront.net";
-        obfs_para->port = atoi(remote_port);
-        LOGI("obfuscating enabled");
-        LOGI("obfuscating hostname: %s", obfs_host);
-    }
-
     // parse tunnel addr
     parse_addr(tunnel_addr_str, &tunnel_addr);
 
     if (tunnel_addr.port == NULL) {
         FATAL("tunnel port is not defined");
+    }
+
+    if (plugin != NULL) {
+        int len = 0;
+        size_t buf_size = 256 * remote_num;
+        char *remote_str = ss_malloc(buf_size);
+
+        snprintf(remote_str, buf_size, "%s", remote_addr[0].host);
+        for (int i = 1; i < remote_num; i++) {
+            snprintf(remote_str + len, buf_size - len, "|%s", remote_addr[i].host);
+            len = strlen(remote_str);
+        }
+        int err = start_plugin(plugin, plugin_args, remote_str,
+                remote_port, plugin_host, plugin_port);
+        if (err) {
+            FATAL("failed to start the plugin");
+        }
+        ev_timer_init(&plugin_watcher, plugin_update_cb, 1, UPDATE_INTERVAL);
+        ev_timer_start(EV_DEFAULT, &plugin_watcher);
+
+        remote_num = 1;
+        remote_addr[0].host = plugin_host;
+        remote_addr[0].port = plugin_port;
     }
 
 #ifdef __MINGW32__
@@ -1111,6 +1112,11 @@ main(int argc, char **argv)
 #endif
 
     ev_run(loop, 0);
+
+    if (plugin != NULL) {
+        ev_timer_stop(EV_DEFAULT, &plugin_watcher);
+        stop_plugin();
+    }
 
 #ifdef __MINGW32__
     winsock_cleanup();

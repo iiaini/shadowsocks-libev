@@ -61,8 +61,7 @@
 #include "netutils.h"
 #include "utils.h"
 #include "acl.h"
-#include "obfs_http.h"
-#include "obfs_tls.h"
+#include "plugin.h"
 #include "server.h"
 
 #ifndef EAGAIN
@@ -79,10 +78,6 @@
 
 #ifndef SSMAXCONN
 #define SSMAXCONN 1024
-#endif
-
-#ifndef UPDATE_INTERVAL
-#define UPDATE_INTERVAL 30
 #endif
 
 static void signal_cb(EV_P_ ev_signal *w, int revents);
@@ -117,8 +112,6 @@ static int auth      = 0;
 static int ipv6first = 0;
 static int fast_open = 0;
 
-static obfs_para_t *obfs_para = NULL;
-
 #ifdef HAVE_SETRLIMIT
 static int nofile = 0;
 #endif
@@ -132,6 +125,7 @@ uint64_t tx                  = 0;
 uint64_t rx                  = 0;
 ev_timer stat_update_watcher;
 ev_timer block_list_watcher;
+ev_timer plugin_watcher;
 
 static struct cork_dllist connections;
 
@@ -667,30 +661,12 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
     if (server->stage == STAGE_INIT) {
         buf->len += r;
 
-        if (obfs_para && obfs_para->is_enable(server->obfs)) {
-            int ret = obfs_para->check_obfs(buf);
-            if (ret == OBFS_NEED_MORE) {
-                return;
-            } else if (ret) {
-                // obfs is enabled
-                ret = obfs_para->deobfs_request(buf, BUF_SIZE, server->obfs);
-                if (ret == OBFS_NEED_MORE)
-                    return;
-            } else {
-                obfs_para->disable(server->obfs);
-            }
-        }
-
         if (buf->len <= enc_get_iv_len() + 1) {
             // wait for more
             return;
         }
     } else {
         buf->len = r;
-        if (obfs_para) {
-            int ret = obfs_para->deobfs_request(buf, BUF_SIZE, server->obfs);
-            if (ret) LOGE("invalid obfuscating");
-        }
     }
 
     int err = ss_decrypt(buf, server->d_ctx, BUF_SIZE);
@@ -1072,6 +1048,14 @@ block_list_clear_cb(EV_P_ ev_timer *watcher, int revents)
 }
 
 static void
+plugin_update_cb(EV_P_ ev_timer *watcher, int revents)
+{
+    if (get_plugin_state() != PLUGIN_RUNNING) {
+        FATAL("plugin exited unexpectedly");
+    }
+}
+
+static void
 server_timeout_cb(EV_P_ ev_timer *watcher, int revents)
 {
     server_ctx_t *server_ctx
@@ -1211,10 +1195,6 @@ remote_recv_cb(EV_P_ ev_io *w, int revents)
         close_and_free_remote(EV_A_ remote);
         close_and_free_server(EV_A_ server);
         return;
-    }
-
-    if (obfs_para) {
-        obfs_para->obfs_response(server->buf, BUF_SIZE, server->obfs);
     }
 
     int s = send(server->fd, server->buf->data, server->buf->len, 0);
@@ -1425,11 +1405,6 @@ new_server(int fd, listen_ctx_t *listener)
     server->listen_ctx          = listener;
     server->remote              = NULL;
 
-    if (obfs_para != NULL) {
-        server->obfs = (obfs_t *)ss_malloc(sizeof(obfs_t));
-        memset(server->obfs, 0, sizeof(obfs_t));
-    }
-
     if (listener->method) {
         server->e_ctx = ss_malloc(sizeof(enc_ctx_t));
         server->d_ctx = ss_malloc(sizeof(enc_ctx_t));
@@ -1463,12 +1438,6 @@ free_server(server_t *server)
 {
     cork_dllist_remove(&server->entries);
 
-    if (server->obfs != NULL) {
-        bfree(server->obfs->buf);
-        if (server->obfs->extra != NULL)
-            ss_free(server->obfs->extra);
-        ss_free(server->obfs);
-    }
     if (server->chunk != NULL) {
         if (server->chunk->buf != NULL) {
             bfree(server->chunk->buf);
@@ -1598,6 +1567,11 @@ main(int argc, char **argv)
     char *conf_path = NULL;
     char *iface     = NULL;
 
+    char *plugin      = NULL;
+    char *plugin_port = NULL;
+    char *plugin_args = NULL;
+    char tmp_port[8];
+
     int server_num = 0;
     const char *server_host[MAX_REMOTE_NUM];
 
@@ -1611,7 +1585,8 @@ main(int argc, char **argv)
         { "manager-address", required_argument, 0, 0 },
         { "mtu",             required_argument, 0, 0 },
         { "help",            no_argument,       0, 0 },
-        { "obfs",            required_argument, 0, 0 },
+        { "plugin",          required_argument, 0, 0 },
+        { "plugin-args",     required_argument, 0, 0 },
 #ifdef __linux__
         { "mptcp",           no_argument,       0, 0 },
         { "firewall",        no_argument,       0, 0 },
@@ -1641,15 +1616,13 @@ main(int argc, char **argv)
                 usage();
                 exit(EXIT_SUCCESS);
             } else if (option_index == 5) {
-                if (strcmp(optarg, obfs_http->name) == 0)
-                    obfs_para = obfs_http;
-                else if (strcmp(optarg, obfs_tls->name) == 0)
-                    obfs_para = obfs_tls;
-                LOGI("obfuscating enabled");
+                plugin = optarg;
             } else if (option_index == 6) {
+                plugin_args = optarg;
+            } else if (option_index == 7) {
                 mptcp = 1;
                 LOGI("enable multipath TCP");
-            } else if (option_index == 7) {
+            } else if (option_index == 8) {
                 firewall = 1;
                 LOGI("enable firewall rules");
             }
@@ -1756,11 +1729,11 @@ main(int argc, char **argv)
         if (user == NULL) {
             user = conf->user;
         }
-        if (obfs_para == NULL && conf->obfs != NULL) {
-            if (strcmp(conf->obfs, obfs_http->name) == 0)
-                obfs_para = obfs_http;
-            else if (strcmp(conf->obfs, obfs_tls->name) == 0)
-                obfs_para = obfs_tls;
+        if (plugin == NULL) {
+            plugin = conf->plugin;
+        }
+        if (plugin_args == NULL) {
+            plugin_args = conf->plugin_args;
         }
         if (auth == 0) {
             auth = conf->auth;
@@ -1799,6 +1772,16 @@ main(int argc, char **argv)
     if (server_num == 0 || server_port == NULL || password == NULL) {
         usage();
         exit(EXIT_FAILURE);
+    }
+
+    if (plugin != NULL) {
+        uint16_t port = get_local_port();
+        if (port == 0) {
+            FATAL("failed to find a free port");
+        }
+        snprintf(tmp_port, 8, "%d", port);
+        plugin_port = server_port;
+        server_port = tmp_port;
     }
 
     if (method == NULL) {
@@ -1844,8 +1827,8 @@ main(int argc, char **argv)
         LOGI("onetime authentication enabled");
     }
 
-    if (obfs_para) {
-        LOGI("obfuscating enabled");
+    if (plugin != NULL) {
+        LOGI("plugin %s enabled", plugin);
     }
 
     if (mode != TCP_ONLY) {
@@ -1894,13 +1877,35 @@ main(int argc, char **argv)
     for (int i = 0; i < nameserver_num; i++)
         LOGI("using nameserver: %s", nameservers[i]);
 
+    // Start plugin server
+    if (plugin != NULL) {
+        int len = 0;
+        size_t buf_size = 256 * server_num;
+        char *server_str = ss_malloc(buf_size);
+
+        snprintf(server_str, buf_size, "%s", server_host[0]);
+        len = strlen(server_str);
+        for (int i = 1; i < server_num; i++) {
+            snprintf(server_str + len, buf_size - len, "|%s", server_host[i]);
+            len = strlen(server_str);
+        }
+        int err = start_plugin(plugin, plugin_args, server_str,
+                plugin_port, server_host[0], server_port);
+        if (err) {
+            FATAL("failed to start the plugin");
+        }
+        ev_timer_init(&plugin_watcher, plugin_update_cb, 1, UPDATE_INTERVAL);
+        ev_timer_start(EV_DEFAULT, &plugin_watcher);
+
+        server_num = 1;
+    }
+
     // initialize listen context
     listen_ctx_t listen_ctx_list[server_num];
 
     // bind to each interface
-    while (server_num > 0) {
-        int index        = --server_num;
-        const char *host = server_host[index];
+    for (int i = 0; i < server_num; i++) {
+        const char *host = server_host[i];
 
         if (mode != UDP_ONLY) {
             // Bind to port
@@ -1914,7 +1919,7 @@ main(int argc, char **argv)
             }
             setfastopen(listenfd);
             setnonblocking(listenfd);
-            listen_ctx_t *listen_ctx = &listen_ctx_list[index];
+            listen_ctx_t *listen_ctx = &listen_ctx_list[i];
 
             // Setup proxy context
             listen_ctx->timeout = atoi(timeout);
@@ -1929,7 +1934,7 @@ main(int argc, char **argv)
 
         // Setup UDP
         if (mode != TCP_ONLY) {
-            init_udprelay(server_host[index], server_port, mtu, m,
+            init_udprelay(server_host[0], server_port, mtu, m,
                           auth, atoi(timeout), iface);
         }
 
@@ -1980,10 +1985,16 @@ main(int argc, char **argv)
     if (manager_address != NULL) {
         ev_timer_stop(EV_DEFAULT, &stat_update_watcher);
     }
+
     ev_timer_stop(EV_DEFAULT, &block_list_watcher);
 
+    if (plugin != NULL) {
+        ev_timer_stop(EV_DEFAULT, &plugin_watcher);
+        stop_plugin();
+    }
+
     // Clean up
-    for (int i = 0; i <= server_num; i++) {
+    for (int i = 0; i < server_num; i++) {
         listen_ctx_t *listen_ctx = &listen_ctx_list[i];
         if (mode != UDP_ONLY) {
             ev_io_stop(loop, &listen_ctx->io);

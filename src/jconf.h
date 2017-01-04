@@ -56,8 +56,8 @@ typedef struct {
     char *method;
     char *timeout;
     char *user;
-    char *obfs;
-    char *obfs_host;
+    char *plugin;
+    char *plugin_args;
     int auth;
     int fast_open;
     int nofile;
