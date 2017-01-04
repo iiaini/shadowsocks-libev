@@ -40,9 +40,9 @@
 #define CMD_RESRV_LEN 128
 
 static int exit_code;
-static struct cork_env *env;
-static struct cork_exec *exec;
-static struct cork_subprocess *sub;
+static struct cork_env *env = NULL;
+static struct cork_exec *exec = NULL;
+static struct cork_subprocess *sub = NULL;
 
 static int
 plugin_log__data(struct cork_stream_consumer *vself,
@@ -124,6 +124,7 @@ start_plugin(const char *plugin,
     cork_exec_set_env(exec, env);
 
     sub = cork_subprocess_new_exec(exec, NULL, NULL, &exit_code);
+
     int err = cork_subprocess_start(sub);
 
     ss_free(cmd);
@@ -132,15 +133,6 @@ start_plugin(const char *plugin,
         ss_free(new_path);
 
     return err;
-}
-
-int
-get_plugin_state() {
-    if (exit_code)
-        return PLUGIN_EXIT_ERROR;
-    if (cork_subprocess_is_finished(sub))
-        return PLUGIN_EXIT_NORMAL;
-    return PLUGIN_RUNNING;
 }
 
 uint16_t
@@ -172,8 +164,10 @@ get_local_port() {
 
 void
 stop_plugin() {
-    cork_subprocess_abort(sub);
-    cork_subprocess_free(sub);
+    if (sub != NULL) {
+        cork_subprocess_abort(sub);
+        cork_subprocess_free(sub);
+    }
 }
 
 #else
@@ -185,12 +179,6 @@ start_plugin(const char *plugin,
              const char *remote_port,
              const char *local_host,
              const char *local_port)
-{
-    FATAL("Plugin is not supported on MinGW.");
-}
-
-int
-get_plugin_state()
 {
     FATAL("Plugin is not supported on MinGW.");
 }

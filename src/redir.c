@@ -96,16 +96,6 @@ static int auth      = 0;
 static int nofile    = 0;
 #endif
 
-ev_timer plugin_watcher;
-
-static void
-plugin_update_cb(EV_P_ ev_timer *watcher, int revents)
-{
-    if (get_plugin_state() != PLUGIN_RUNNING) {
-        FATAL("plugin exited unexpectedly");
-    }
-}
-
 int
 getdestaddr(int fd, struct sockaddr_storage *destaddr)
 {
@@ -1023,8 +1013,6 @@ main(int argc, char **argv)
         if (err) {
             FATAL("failed to start the plugin");
         }
-        ev_timer_init(&plugin_watcher, plugin_update_cb, 1, UPDATE_INTERVAL);
-        ev_timer_start(EV_DEFAULT, &plugin_watcher);
 
         remote_num = 1;
         remote_addr[0].host = plugin_host;
@@ -1036,6 +1024,7 @@ main(int argc, char **argv)
     signal(SIGABRT, SIG_IGN);
     signal(SIGINT, signal_cb);
     signal(SIGTERM, signal_cb);
+    signal(SIGCHLD, signal_cb);
 
     // Setup keys
     LOGI("initializing ciphers... %s", method);
@@ -1106,7 +1095,6 @@ main(int argc, char **argv)
     ev_run(loop, 0);
 
     if (plugin != NULL) {
-        ev_timer_stop(EV_DEFAULT, &plugin_watcher);
         stop_plugin();
     }
 

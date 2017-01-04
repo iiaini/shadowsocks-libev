@@ -108,8 +108,6 @@ static int mode      = TCP_ONLY;
 static int ipv6first = 0;
 static int fast_open = 0;
 
-ev_timer plugin_watcher;
-
 #ifdef HAVE_SETRLIMIT
 #ifndef LIB_ONLY
 static int nofile = 0;
@@ -147,16 +145,6 @@ setnonblocking(int fd)
         flags = 0;
     }
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-}
-#endif
-
-#ifndef LIB_ONLY
-static void
-plugin_update_cb(EV_P_ ev_timer *watcher, int revents)
-{
-    if (get_plugin_state() != PLUGIN_RUNNING) {
-        FATAL("plugin exited unexpectedly");
-    }
 }
 #endif
 
@@ -1130,17 +1118,26 @@ create_remote(listen_ctx_t *listener,
     return remote;
 }
 
+void
+resolve_int_cb(int dummy)
+{
+    keep_resolving = 0;
+}
+
 static void
 signal_cb(EV_P_ ev_signal *w, int revents)
 {
     if (revents & EV_SIGNAL) {
         switch (w->signum) {
+        case SIGCHLD:
+            LOGE("plugin service exit unexpectedly");
         case SIGINT:
         case SIGTERM:
 #ifndef __MINGW32__
         case SIGUSR1:
 #endif
             ev_unloop(EV_A_ EVUNLOOP_ALL);
+            resolve_int_cb(revents);
         }
     }
 }
@@ -1165,12 +1162,6 @@ accept_cb(EV_P_ ev_io *w, int revents)
     server->listener = listener;
 
     ev_io_start(EV_A_ & server->recv_ctx->io);
-}
-
-void
-resolve_int_cb(int dummy)
-{
-    keep_resolving = 0;
 }
 
 #ifndef LIB_ONLY
@@ -1474,8 +1465,6 @@ main(int argc, char **argv)
         if (err) {
             FATAL("failed to start the plugin");
         }
-        ev_timer_init(&plugin_watcher, plugin_update_cb, 1, UPDATE_INTERVAL);
-        ev_timer_start(EV_DEFAULT, &plugin_watcher);
 
         remote_num = 1;
         remote_addr[0].host = plugin_host;
@@ -1488,8 +1477,6 @@ main(int argc, char **argv)
     // ignore SIGPIPE
     signal(SIGPIPE, SIG_IGN);
     signal(SIGABRT, SIG_IGN);
-    signal(SIGINT, resolve_int_cb);
-    signal(SIGTERM, resolve_int_cb);
 #endif
 
     // Setup keys
@@ -1520,10 +1507,13 @@ main(int argc, char **argv)
     // Setup signal handler
     struct ev_signal sigint_watcher;
     struct ev_signal sigterm_watcher;
+    struct ev_signal sigchld_watcher;
     ev_signal_init(&sigint_watcher, signal_cb, SIGINT);
     ev_signal_init(&sigterm_watcher, signal_cb, SIGTERM);
+    ev_signal_init(&sigchld_watcher, signal_cb, SIGCHLD);
     ev_signal_start(EV_DEFAULT, &sigint_watcher);
     ev_signal_start(EV_DEFAULT, &sigterm_watcher);
+    ev_signal_start(EV_DEFAULT, &sigchld_watcher);
 
     struct ev_loop *loop = EV_DEFAULT;
 
@@ -1590,7 +1580,6 @@ main(int argc, char **argv)
     // Clean up
     
     if (plugin != NULL) {
-        ev_timer_stop(EV_DEFAULT, &plugin_watcher);
         stop_plugin();
     }
 
@@ -1613,6 +1602,7 @@ main(int argc, char **argv)
 
     ev_signal_stop(EV_DEFAULT, &sigint_watcher);
     ev_signal_stop(EV_DEFAULT, &sigterm_watcher);
+    ev_signal_stop(EV_DEFAULT, &sigchld_watcher);
 
     return 0;
 }
@@ -1667,10 +1657,13 @@ start_ss_local_server(profile_t profile)
 
     struct ev_signal sigint_watcher;
     struct ev_signal sigterm_watcher;
+    struct ev_signal sigchld_watcher;
     ev_signal_init(&sigint_watcher, signal_cb, SIGINT);
     ev_signal_init(&sigterm_watcher, signal_cb, SIGTERM);
+    ev_signal_init(&sigchld_watcher, signal_cb, SIGCHLD);
     ev_signal_start(EV_DEFAULT, &sigint_watcher);
     ev_signal_start(EV_DEFAULT, &sigterm_watcher);
+    ev_signal_start(EV_DEFAULT, &sigchld_watcher);
 #ifndef __MINGW32__
     struct ev_signal sigusr1_watcher;
     ev_signal_init(&sigusr1_watcher, signal_cb, SIGUSR1);
@@ -1763,6 +1756,7 @@ start_ss_local_server(profile_t profile)
 
     ev_signal_stop(EV_DEFAULT, &sigint_watcher);
     ev_signal_stop(EV_DEFAULT, &sigterm_watcher);
+    ev_signal_stop(EV_DEFAULT, &sigchld_watcher);
 #ifndef __MINGW32__
     ev_signal_stop(EV_DEFAULT, &sigusr1_watcher);
 #endif

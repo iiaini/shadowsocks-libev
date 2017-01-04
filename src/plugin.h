@@ -33,7 +33,6 @@ int start_plugin(const char *plugin,
                  const char *remote_port,
                  const char *local_host,
                  const char *local_port);
-int get_plugin_state();
 uint16_t get_local_port();
 void stop_plugin();
 

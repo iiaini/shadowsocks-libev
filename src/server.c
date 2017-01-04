@@ -125,7 +125,6 @@ uint64_t tx                  = 0;
 uint64_t rx                  = 0;
 ev_timer stat_update_watcher;
 ev_timer block_list_watcher;
-ev_timer plugin_watcher;
 
 static struct cork_dllist connections;
 
@@ -1048,14 +1047,6 @@ block_list_clear_cb(EV_P_ ev_timer *watcher, int revents)
 }
 
 static void
-plugin_update_cb(EV_P_ ev_timer *watcher, int revents)
-{
-    if (get_plugin_state() != PLUGIN_RUNNING) {
-        FATAL("plugin exited unexpectedly");
-    }
-}
-
-static void
 server_timeout_cb(EV_P_ ev_timer *watcher, int revents)
 {
     server_ctx_t *server_ctx
@@ -1495,6 +1486,8 @@ signal_cb(EV_P_ ev_signal *w, int revents)
 {
     if (revents & EV_SIGNAL) {
         switch (w->signum) {
+        case SIGCHLD:
+            LOGE("plugin service exit unexpectedly");
         case SIGINT:
         case SIGTERM:
             ev_unloop(EV_A_ EVUNLOOP_ALL);
@@ -1844,16 +1837,18 @@ main(int argc, char **argv)
 #else
     // ignore SIGPIPE
     signal(SIGPIPE, SIG_IGN);
-    signal(SIGCHLD, SIG_IGN);
     signal(SIGABRT, SIG_IGN);
 #endif
 
     struct ev_signal sigint_watcher;
     struct ev_signal sigterm_watcher;
+    struct ev_signal sigchld_watcher;
     ev_signal_init(&sigint_watcher, signal_cb, SIGINT);
     ev_signal_init(&sigterm_watcher, signal_cb, SIGTERM);
+    ev_signal_init(&sigchld_watcher, signal_cb, SIGCHLD);
     ev_signal_start(EV_DEFAULT, &sigint_watcher);
     ev_signal_start(EV_DEFAULT, &sigterm_watcher);
+    ev_signal_start(EV_DEFAULT, &sigchld_watcher);
 
     // setup keys
     LOGI("initializing ciphers... %s", method);
@@ -1894,8 +1889,6 @@ main(int argc, char **argv)
         if (err) {
             FATAL("failed to start the plugin");
         }
-        ev_timer_init(&plugin_watcher, plugin_update_cb, 1, UPDATE_INTERVAL);
-        ev_timer_start(EV_DEFAULT, &plugin_watcher);
 
         server_num = 1;
     }
@@ -1989,7 +1982,6 @@ main(int argc, char **argv)
     ev_timer_stop(EV_DEFAULT, &block_list_watcher);
 
     if (plugin != NULL) {
-        ev_timer_stop(EV_DEFAULT, &plugin_watcher);
         stop_plugin();
     }
 
@@ -2018,6 +2010,7 @@ main(int argc, char **argv)
 
     ev_signal_stop(EV_DEFAULT, &sigint_watcher);
     ev_signal_stop(EV_DEFAULT, &sigterm_watcher);
+    ev_signal_stop(EV_DEFAULT, &sigchld_watcher);
 
     return 0;
 }

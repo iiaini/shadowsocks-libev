@@ -101,8 +101,6 @@ static int auth      = 0;
 static int nofile = 0;
 #endif
 
-ev_timer plugin_watcher;
-
 #ifndef __MINGW32__
 static int
 setnonblocking(int fd)
@@ -114,14 +112,6 @@ setnonblocking(int fd)
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 #endif
-
-static void
-plugin_update_cb(EV_P_ ev_timer *watcher, int revents)
-{
-    if (get_plugin_state() != PLUGIN_RUNNING) {
-        FATAL("plugin exited unexpectedly");
-    }
-}
 
 int
 create_and_bind(const char *addr, const char *port)
@@ -1021,8 +1011,6 @@ main(int argc, char **argv)
         if (err) {
             FATAL("failed to start the plugin");
         }
-        ev_timer_init(&plugin_watcher, plugin_update_cb, 1, UPDATE_INTERVAL);
-        ev_timer_start(EV_DEFAULT, &plugin_watcher);
 
         remote_num = 1;
         remote_addr[0].host = plugin_host;
@@ -1037,6 +1025,7 @@ main(int argc, char **argv)
     signal(SIGABRT, SIG_IGN);
     signal(SIGINT, signal_cb);
     signal(SIGTERM, signal_cb);
+    signal(SIGCHLD, signal_cb);
 #endif
 
     // Setup keys
@@ -1114,7 +1103,6 @@ main(int argc, char **argv)
     ev_run(loop, 0);
 
     if (plugin != NULL) {
-        ev_timer_stop(EV_DEFAULT, &plugin_watcher);
         stop_plugin();
     }
 
