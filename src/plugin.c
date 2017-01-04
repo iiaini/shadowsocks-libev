@@ -24,13 +24,14 @@
 #include "config.h"
 #endif
 
-#ifndef __MINGW32__ 
+#ifndef __MINGW32__
 
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#include <libcork/core.h>
 #include <libcork/os.h>
 
 #include "utils.h"
@@ -102,10 +103,11 @@ start_plugin(const char *plugin,
     const char *path = cork_env_get(env, "PATH");
     if (path != NULL) {
         char cwd[PATH_MAX];
-        getcwd(cwd, PATH_MAX);
-        size_t path_len = strlen(path) + strlen(cwd) + 2;
-        new_path = ss_malloc(path_len);
-        snprintf(new_path, path_len, "%s:%s", cwd, path);
+        if (!getcwd(cwd, PATH_MAX)) {
+            size_t path_len = strlen(path) + strlen(cwd) + 2;
+            new_path = ss_malloc(path_len);
+            snprintf(new_path, path_len, "%s:%s", cwd, path);
+        }
     }
 
     if (new_path != NULL)

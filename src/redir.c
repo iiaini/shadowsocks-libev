@@ -274,10 +274,6 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
         return;
     }
 
-    if (obfs_para) {
-        obfs_para->obfs_request(remote->buf, BUF_SIZE, server->obfs);
-    }
-
     int s = send(remote->fd, remote->buf->data, remote->buf->len, 0);
 
     if (s == -1) {
@@ -387,15 +383,6 @@ remote_recv_cb(EV_P_ ev_io *w, int revents)
     }
 
     server->buf->len = r;
-
-    if (obfs_para) {
-        if (obfs_para->deobfs_response(server->buf, BUF_SIZE, server->obfs)) {
-            LOGE("invalid obfuscating");
-            close_and_free_remote(EV_A_ remote);
-            close_and_free_server(EV_A_ server);
-            return;
-        }
-    }
 
     int err = ss_decrypt(server->buf, server->d_ctx, BUF_SIZE);
     if (err) {
@@ -512,10 +499,6 @@ remote_send_cb(EV_P_ ev_io *w, int revents)
                 close_and_free_remote(EV_A_ remote);
                 close_and_free_server(EV_A_ server);
                 return;
-            }
-
-            if (obfs_para) {
-                obfs_para->obfs_request(remote->buf, BUF_SIZE, server->obfs);
             }
 
             ev_io_start(EV_A_ & remote->recv_ctx->io);
@@ -637,11 +620,6 @@ new_server(int fd, int method)
     server->hostname     = NULL;
     server->hostname_len = 0;
 
-    if (obfs_para != NULL) {
-        server->obfs = (obfs_t *)ss_malloc(sizeof(obfs_t));
-        memset(server->obfs, 0, sizeof(obfs_t));
-    }
-
     if (method) {
         server->e_ctx = ss_malloc(sizeof(enc_ctx_t));
         server->d_ctx = ss_malloc(sizeof(enc_ctx_t));
@@ -661,12 +639,6 @@ new_server(int fd, int method)
 static void
 free_server(server_t *server)
 {
-    if (server->obfs != NULL) {
-        bfree(server->obfs->buf);
-        if (server->obfs->extra != NULL)
-            ss_free(server->obfs->extra);
-        ss_free(server->obfs);
-    }
     if (server->hostname != NULL) {
         ss_free(server->hostname);
     }
