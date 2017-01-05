@@ -81,7 +81,6 @@ struct cork_stream_consumer plugin_log = {
 
 int
 start_plugin(const char *plugin,
-             const char *plugin_args,
              const char *remote_host,
              const char *remote_port,
              const char *local_host,
@@ -90,14 +89,14 @@ start_plugin(const char *plugin,
     char *new_path = NULL;
     char *cmd      = NULL;
 
-    size_t args_len = plugin_args != NULL ? strlen(plugin_args) : 0;
-    size_t cmd_len = args_len + CMD_RESRV_LEN;
+    if (plugin == NULL)
+        return -1;
+
+    size_t plugin_len = strlen(plugin);
+    size_t cmd_len = plugin_len + CMD_RESRV_LEN;
     cmd = ss_malloc(cmd_len);
 
-    if (plugin_args != NULL)
-        snprintf(cmd, cmd_len, "exec %s %s", plugin, plugin_args);
-    else
-        snprintf(cmd, cmd_len, "exec %s", plugin);
+    snprintf(cmd, cmd_len, "exec %s", plugin);
 
     env = cork_env_clone_current();
     const char *path = cork_env_get(env, "PATH");
@@ -174,7 +173,6 @@ stop_plugin() {
 
 int
 start_plugin(const char *plugin,
-             const char *plugin_args,
              const char *remote_host,
              const char *remote_port,
              const char *local_host,

@@ -28,7 +28,6 @@
 #define PLUGIN_RUNNING      0
 
 int start_plugin(const char *plugin,
-                 const char *plugin_args,
                  const char *remote_host,
                  const char *remote_port,
                  const char *local_host,

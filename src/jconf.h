@@ -57,7 +57,6 @@ typedef struct {
     char *timeout;
     char *user;
     char *plugin;
-    char *plugin_args;
     int auth;
     int fast_open;
     int nofile;

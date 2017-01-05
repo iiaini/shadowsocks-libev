@@ -180,10 +180,6 @@ construct_command_line(struct manager_ctx *manager, struct server *server)
         int len = strlen(cmd);
         snprintf(cmd + len, BUF_SIZE - len, " --plugin %s", manager->plugin);
     }
-    if (manager->plugin_args) {
-        int len = strlen(cmd);
-        snprintf(cmd + len, BUF_SIZE - len, " --plugin-args %s", manager->plugin_args);
-    }
     for (i = 0; i < manager->nameserver_num; i++) {
         int len = strlen(cmd);
         snprintf(cmd + len, BUF_SIZE - len, " -d %s", manager->nameservers[i]);
@@ -624,7 +620,6 @@ main(int argc, char **argv)
     char *iface           = NULL;
     char *manager_address = NULL;
     char *plugin          = NULL;
-    char *plugin_args     = NULL;
 
     int auth      = 0;
     int fast_open = 0;
@@ -652,7 +647,6 @@ main(int argc, char **argv)
         { "executable",      required_argument, 0, 0 },
         { "mtu",             required_argument, 0, 0 },
         { "plugin",          required_argument, 0, 0 },
-        { "plugin-args",     required_argument, 0, 0 },
         { "help",            no_argument,       0, 0 },
         { 0,                 0,                 0, 0 }
     };
@@ -678,8 +672,6 @@ main(int argc, char **argv)
             } else if (option_index == 5) {
                 plugin = optarg;
             } else if (option_index == 6) {
-                plugin_args = optarg;
-            } else if (option_index == 7) {
                 usage();
                 exit(EXIT_SUCCESS);
             }
@@ -790,9 +782,6 @@ main(int argc, char **argv)
         if (plugin == 0) {
             plugin = conf->plugin;
         }
-        if (plugin_args == 0) {
-            plugin_args = conf->plugin_args;
-        }
         if (ipv6first == 0) {
             ipv6first = conf->ipv6_first;
         }
@@ -873,7 +862,6 @@ main(int argc, char **argv)
     manager.nameserver_num  = nameserver_num;
     manager.mtu             = mtu;
     manager.plugin          = plugin;
-    manager.plugin_args     = plugin_args;
     manager.ipv6first       = ipv6first;
 #ifdef HAVE_SETRLIMIT
     manager.nofile = nofile;
