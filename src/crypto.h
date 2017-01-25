@@ -27,17 +27,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdint.h>
-
-#include <sodium.h>
-
-#if SODIUM_LIBRARY_VERSION_MAJOR >= 8
-#define CIPHER_NUM          21
-#else
-#define CIPHER_NUM          20
-#endif
-
-#endif
 
 #ifdef HAVE_STDINT_H
 #include <stdint.h>
@@ -45,47 +34,76 @@
 #include <inttypes.h>
 #endif
 
-#define NONE                -1
-#define TABLE               0
-#define RC4                 1
-#define RC4_MD5             2
-#define AES_128_CFB         3
-#define AES_192_CFB         4
-#define AES_256_CFB         5
-#define AES_128_CTR         6
-#define AES_192_CTR         7
-#define AES_256_CTR         8
-#define BF_CFB              9
-#define CAMELLIA_128_CFB    10
-#define CAMELLIA_192_CFB    11
-#define CAMELLIA_256_CFB    12
-#define CAST5_CFB           13
-#define DES_CFB             14
-#define IDEA_CFB            15
-#define RC2_CFB             16
-#define SEED_CFB            17
-#define SALSA20             18
-#define CHACHA20            19
-#define CHACHA20IETF        20
+/* Definations for mbedTLS */
+#include <mbedtls/cipher.h>
+#include <mbedtls/md.h>
+typedef mbedtls_cipher_info_t cipher_kt_t;
+typedef mbedtls_cipher_context_t cipher_evp_t;
+typedef mbedtls_md_info_t digest_type_t;
+#define MAX_KEY_LENGTH 64
+#define MAX_NONCE_LENGTH MBEDTLS_MAX_NONCE_LENGTH
+#define MAX_MD_SIZE MBEDTLS_MD_MAX_SIZE
+/* we must have MBEDTLS_CIPHER_MODE_CFB defined */
+#if !defined(MBEDTLS_CIPHER_MODE_CFB)
+#error Cipher Feedback mode a.k.a CFB not supported by your mbed TLS.
+#endif
+#ifndef MBEDTLS_GCM_C
+#error No GCM support detected
+#endif
+#ifdef crypto_aead_xchacha20poly1305_ietf_ABYTES
+#define FS_HAVE_XCHACHA20IETF
+#endif
 
-typedef struct cipher_ctx cipher_ctx_t;
-typedef struct cipher cipher_t;
-typedef struct buffer buffer_t;
-typedef struct crypto_ctx crypto_ctx_t;
+/* Definations for Appple CC*/
+#ifdef USE_CRYPTO_APPLECC
+#include <CommonCrypto/CommonCrypto.h>
+#define kCCAlgorithmInvalid UINT32_MAX
+#define kCCContextValid 0
+#define kCCContextInvalid -1
+typedef struct {
+    CCCryptorRef cryptor;
+    int valid;
+    CCOperation encrypt;
+    CCAlgorithm cipher;
+    CCMode mode;
+    CCPadding padding;
+    uint8_t iv[MAX_NONCE_LENGTH];
+    uint8_t key[MAX_KEY_LENGTH];
+    size_t iv_len;
+    size_t key_len;
+} cipher_cc_t;
+#endif
+
+typedef struct {
+    cipher_evp_t *evp;
+#ifdef USE_CRYPTO_APPLECC
+    cipher_cc_t cc;
+#endif
+    uint8_t nonce[MAX_NONCE_LENGTH];
+} cipher_ctx_t;
+
+typedef struct {
+    cipher_kt_t *info;
+    size_t nonce_len;
+    size_t key_len;
+} cipher_t;
+
+typedef struct crypto_ctx {
+    uint8_t init;
+    uint64_t counter; /* for sodium padding */
+    cipher_ctx_t evp;
+} crypto_ctx_t;
 
 typedef struct crypto {
     int method;
 
-    int(*const parse_packet)(const char *, size_t, char **);
     int (*const encrypt_all)(buffer_t *, int, size_t);
     int (*const decrypt_all)(buffer_t *, int, size_t);
     int (*const encrypt)(buffer_t *, crypto_ctx_t*, size_t);
     int (*const decrypt)(buffer_t *, crypto_ctx_t*, size_t);
 
     void (*const ctx_init)(int, crypto_ctx_t*, int);
-    int (*const init)(const char *, const char *);
-    int (*const get_iv_len)(void);
-    void (*const cipher_context_release)(cipher_ctx_t *);
+    void (*const ctx_release)(crypto_ctx_t *);
 } crypto_t;
 
 int balloc(buffer_t *ptr, size_t capacity);
@@ -93,5 +111,8 @@ int brealloc(buffer_t *ptr, size_t len, size_t capacity);
 void bfree(buffer_t *ptr);
 int rand_bytes(void *output, int len);
 int crypto_init(const char *password, const char *method);
+
+extern const char *stream_supported_ciphers;
+extern const char *aead_supported_ciphers;
 
 #endif // _CRYPTO_H

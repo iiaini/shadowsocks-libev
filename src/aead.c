@@ -27,14 +27,10 @@
 #include "config.h"
 #endif
 
-#if defined(USE_CRYPTO_MBEDTLS)
-
 #include <mbedtls/version.h>
 #define CIPHER_UNSUPPORTED "unsupported"
 #include <time.h>
 #include <stdio.h>
-
-#endif
 
 #include <sodium.h>
 #include <arpa/inet.h>
@@ -141,7 +137,7 @@ dump(char *tag, char *text, int len)
 
 #endif
 
-static const char *supported_ciphers[CIPHER_NUM] = {
+const char *aead_supported_ciphers[CIPHER_NUM] = {
     "aes-128-gcm",
     "aes-192-gcm",
     "aes-256-gcm",
@@ -155,7 +151,6 @@ static const char *supported_ciphers[CIPHER_NUM] = {
 /*
  * use mbed TLS cipher wrapper to unify handling
  */
-#ifdef USE_CRYPTO_MBEDTLS
 static const char *supported_ciphers_mbedtls[CIPHER_NUM] = {
     "AES-128-GCM",
     "AES-192-GCM",
@@ -166,7 +161,6 @@ static const char *supported_ciphers_mbedtls[CIPHER_NUM] = {
     CIPHER_UNSUPPORTED
 #endif
 };
-#endif
 
 static const int supported_ciphers_nonce_size[CIPHER_NUM] = {
     12, 12, 12, 8, 12,
@@ -239,12 +233,10 @@ enc_get_tag_len()
 int
 cipher_nonce_size(const cipher_t *cipher)
 {
-#if defined(USE_CRYPTO_MBEDTLS)
     if (cipher == NULL) {
         return 0;
     }
     return cipher->info->iv_size;
-#endif
 }
 
 /*
@@ -255,12 +247,10 @@ cipher_nonce_size(const cipher_t *cipher)
 int
 cipher_key_size(const cipher_t *cipher)
 {
-#if defined(USE_CRYPTO_MBEDTLS)
     if (cipher == NULL) {
         return 0;
     }
     return cipher->info->key_bitlen / 8;
-#endif
 }
 
 /*
@@ -286,14 +276,6 @@ derive_key(const cipher_t *cipher,
         return 0;
     }
     return key_size;
-}
-
-int
-rand_bytes(void *output, int len)
-{
-    randombytes_buf(output, len);
-    // always return success
-    return 0;
 }
 
 /*
@@ -371,7 +353,6 @@ get_cipher_type(int method)
     }
 
     const char *ciphername = supported_ciphers[method];
-#if defined(USE_CRYPTO_MBEDTLS)
     const char *mbedtlsname = supported_ciphers_mbedtls[method];
     if (strcmp(mbedtlsname, CIPHER_UNSUPPORTED) == 0) {
         LOGE("Cipher %s currently is not supported by mbed TLS library",
@@ -379,7 +360,6 @@ get_cipher_type(int method)
         return NULL;
     }
     return mbedtls_cipher_info_from_string(mbedtlsname);
-#endif
 }
 
 void
@@ -399,7 +379,6 @@ cipher_context_init(cipher_ctx_t *ctx, int method, int enc)
 
     const cipher_kt_t *cipher = get_cipher_type(method);
 
-#if defined(USE_CRYPTO_MBEDTLS)
     ctx->evp = ss_malloc(sizeof(cipher_evp_t));
     memset(ctx->evp, 0, sizeof(cipher_evp_t));
     cipher_evp_t *evp = ctx->evp;
@@ -423,8 +402,6 @@ cipher_context_init(cipher_ctx_t *ctx, int method, int enc)
 
 #ifdef DEBUG
     dump("KEY", (char *)enc_key, enc_key_len);
-#endif
-
 #endif
 }
 
@@ -489,10 +466,8 @@ cipher_context_release(cipher_ctx_t *ctx)
         return;
     }
 
-#if defined(USE_CRYPTO_MBEDTLS)
     mbedtls_cipher_free(ctx->evp);
     ss_free(ctx->evp);
-#endif
 }
 
 /* UDP */
@@ -774,12 +749,10 @@ enc_key_init(int method, const char *pass)
          * since they don't really need it
          * just to keep things consistent
          */
-#if defined(USE_CRYPTO_MBEDTLS)
         cipher.info             = &cipher_info;
         cipher.info->base       = NULL;
         cipher.info->key_bitlen = supported_ciphers_key_size[method] * 8;
         cipher.info->iv_size    = supported_ciphers_nonce_size[method];
-#endif
     } else {
         cipher.info = (cipher_kt_t *)get_cipher_type(method);
     }

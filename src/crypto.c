@@ -1,5 +1,5 @@
 /*
- * encrypt.c - Manage the global encryptor
+ * crypto.c - Manage the global crypto
  *
  * Copyright (C) 2013 - 2016, Max Lv <max.c.lv@gmail.com>
  *
@@ -86,20 +86,49 @@ crypto_init(const char *password, const char *method);
     int aead = 0;
 
     if (method != NULL) {
-        for (i = 0; i < STREAM_CIPHER_NUM; i++)
+        for (i = 0; i < STREAM_CIPHER_NUM; i++) {
             if (strcmp(method, stream_supported_ciphers[i]) == 0) {
+                m = i;
                 break;
             }
+        }
         if (m != -1) {
-
+            stream_init(password, method);
+            crypto_t crypto = {
+                .method = m,
+                .encrypt_all = &stream_encrypt_all,
+                .decrypt_all = &stream_decrypt_all,
+                .encrypt = &stream_encrypt,
+                .decrypt = &stream_decrypt,
+                .ctx_init = &stream_ctx_init,
+                .ctx_release = &stream_ctx_release
+            };
+            return m;
         }
-        if (m >= CIPHER_NUM) {
-            LOGE("Invalid cipher name: %s, use rc4-md5 instead", method);
-            m = RC4_MD5;
-        }
 
-        FATAL("Invalid cipher name: %s", method);
+        for (i = 0; i < AEAD_CIPHER_NUM; i++) {
+            if (strcmp(method, aead_supported_ciphers[i]) == 0) {
+                m = i;
+                break;
+            }
+        }
+        if (m != -1) {
+            aead_init(password, method);
+            crypto_t crypto = {
+                .method = m,
+                .encrypt_all = &aead_encrypt_all,
+                .decrypt_all = &aead_decrypt_all,
+                .encrypt = &aead_encrypt,
+                .decrypt = &aead_decrypt,
+                .ctx_init = &aead_ctx_init,
+                .ctx_release = &aead_ctx_release
+            };
+            return m;
+        }
     }
 
+    FATAL("Invalid cipher name: %s", method);
+
+    // Should not come here
     return m;
 }
