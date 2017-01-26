@@ -434,7 +434,7 @@ int
 stream_encrypt(buffer_t *plaintext, cipher_ctx_t *cipher_ctx, size_t capacity)
 {
     if (cipher_ctx == NULL)
-        return -1;
+        return CRYPTO_ERROR;
 
     cipher_t *cipher = cipher_ctx->cipher;
     
@@ -639,7 +639,7 @@ stream_ctx_init(cipher_t *cipher, cipher_ctx_t *cipher_ctx, int enc)
     cipher_ctx->cipher = cipher;
 
     if (enc) {
-        rand_bytes(cipher_ctx->evp->iv, cipher->nonce_len);
+        rand_bytes(cipher_ctx->nonce, cipher->nonce_len);
     }
 }
 

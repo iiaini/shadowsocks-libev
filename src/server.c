@@ -578,6 +578,7 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
     }
 
     tx += r;
+    buf->len = r;
 
     int err = crypto->decrypt(buf, server->d_ctx, BUF_SIZE);
 
@@ -1626,12 +1627,7 @@ main(int argc, char **argv)
     struct ev_loop *loop = EV_DEFAULT;
 
     // setup udns
-    if (nameserver_num == 0) {
-        nameservers[nameserver_num++] = "8.8.8.8";
-        resolv_init(loop, nameservers, nameserver_num, ipv6first);
-    } else {
-        resolv_init(loop, nameservers, nameserver_num, ipv6first);
-    }
+    resolv_init(loop, nameservers, nameserver_num, ipv6first);
 
     for (int i = 0; i < nameserver_num; i++)
         LOGI("using nameserver: %s", nameservers[i]);
