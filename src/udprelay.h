@@ -26,7 +26,7 @@
 #include <ev.h>
 #include <time.h>
 
-#include "encrypt.h"
+#include "crypto.h"
 #include "jconf.h"
 
 #ifdef MODULE_REMOTE
@@ -44,7 +44,7 @@
 typedef struct server_ctx {
     ev_io io;
     int fd;
-    int method;
+    crypto_t *crypto;
     int timeout;
     const char *iface;
     struct cache *conn_cache;

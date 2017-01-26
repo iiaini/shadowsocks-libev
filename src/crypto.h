@@ -15,7 +15,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have recenonceed a copy of the GNU General Public License
  * along with shadowsocks-libev; see the file COPYING. If not, see
  * <http://www.gnu.org/licenses/>.
  */
@@ -41,7 +41,7 @@ typedef mbedtls_cipher_info_t cipher_kt_t;
 typedef mbedtls_cipher_context_t cipher_evp_t;
 typedef mbedtls_md_info_t digest_type_t;
 #define MAX_KEY_LENGTH 64
-#define MAX_NONCE_LENGTH MBEDTLS_MAX_NONCE_LENGTH
+#define MAX_NONCE_LENGTH MBEDTLS_MAX_IV_LENGTH
 #define MAX_MD_SIZE MBEDTLS_MD_MAX_SIZE
 /* we must have MBEDTLS_CIPHER_MODE_CFB defined */
 #if !defined(MBEDTLS_CIPHER_MODE_CFB)
@@ -54,65 +54,57 @@ typedef mbedtls_md_info_t digest_type_t;
 #define FS_HAVE_XCHACHA20IETF
 #endif
 
-/* Definations for Appple CC*/
-#ifdef USE_CRYPTO_APPLECC
-#include <CommonCrypto/CommonCrypto.h>
-#define kCCAlgorithmInvalid UINT32_MAX
-#define kCCContextValid 0
-#define kCCContextInvalid -1
-typedef struct {
-    CCCryptorRef cryptor;
-    int valid;
-    CCOperation encrypt;
-    CCAlgorithm cipher;
-    CCMode mode;
-    CCPadding padding;
-    uint8_t iv[MAX_NONCE_LENGTH];
-    uint8_t key[MAX_KEY_LENGTH];
-    size_t iv_len;
-    size_t key_len;
-} cipher_cc_t;
-#endif
+#define ADDRTYPE_MASK 0xF
+
+#define CRYPTO_ERROR     -2
+#define CRYPTO_NEED_MORE -1
+
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#define max(a, b) (((a) > (b)) ? (a) : (b))
+
+typedef struct buffer {
+    size_t idx;
+    size_t len;
+    size_t capacity;
+    char   *data;
+} buffer_t;
 
 typedef struct {
-    cipher_evp_t *evp;
-#ifdef USE_CRYPTO_APPLECC
-    cipher_cc_t cc;
-#endif
-    uint8_t nonce[MAX_NONCE_LENGTH];
-} cipher_ctx_t;
-
-typedef struct {
+    int method;
     cipher_kt_t *info;
     size_t nonce_len;
     size_t key_len;
+    uint8_t key[MAX_KEY_LENGTH];
 } cipher_t;
 
-typedef struct crypto_ctx {
+typedef struct {
     uint8_t init;
-    uint64_t counter; /* for sodium padding */
-    cipher_ctx_t evp;
-} crypto_ctx_t;
+    uint64_t counter;
+    cipher_evp_t *evp;
+    cipher_t* cipher;
+    uint8_t nonce[MAX_NONCE_LENGTH];
+} cipher_ctx_t;
 
 typedef struct crypto {
-    int method;
+    cipher_t *cipher;
 
-    int (*const encrypt_all)(buffer_t *, int, size_t);
-    int (*const decrypt_all)(buffer_t *, int, size_t);
-    int (*const encrypt)(buffer_t *, crypto_ctx_t*, size_t);
-    int (*const decrypt)(buffer_t *, crypto_ctx_t*, size_t);
+    int (*const encrypt_all)(buffer_t*, cipher_t*, size_t);
+    int (*const decrypt_all)(buffer_t*, cipher_t*, size_t);
+    int (*const encrypt)(buffer_t*, cipher_ctx_t*, size_t);
+    int (*const decrypt)(buffer_t*, cipher_ctx_t*, size_t);
 
-    void (*const ctx_init)(int, crypto_ctx_t*, int);
-    void (*const ctx_release)(crypto_ctx_t *);
+    void (*const ctx_init)(cipher_t*, cipher_ctx_t*, int);
+    void (*const ctx_release)(cipher_ctx_t*);
 } crypto_t;
 
 int balloc(buffer_t *ptr, size_t capacity);
 int brealloc(buffer_t *ptr, size_t len, size_t capacity);
 void bfree(buffer_t *ptr);
 int rand_bytes(void *output, int len);
-int crypto_init(const char *password, const char *method);
 
-extern const char *stream_supported_ciphers;
-extern const char *aead_supported_ciphers;
+crypto_t *crypto_init(const char *password, const char *method);
+
+extern const char *supported_stream_ciphers[];
+// extern const char *supported_stream_ciphers;
 
 #endif // _CRYPTO_H

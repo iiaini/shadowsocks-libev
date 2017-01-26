@@ -24,7 +24,7 @@
 #define _TUNNEL_H
 
 #include <ev.h>
-#include "encrypt.h"
+#include "crypto.h"
 #include "jconf.h"
 
 #include "common.h"
@@ -34,7 +34,6 @@ typedef struct listen_ctx {
     ss_addr_t tunnel_addr;
     char *iface;
     int remote_num;
-    int method;
     int timeout;
     int fd;
     int mptcp;
@@ -51,8 +50,8 @@ typedef struct server {
     int fd;
 
     buffer_t *buf;
-    struct enc_ctx *e_ctx;
-    struct enc_ctx *d_ctx;
+    cipher_ctx_t *e_ctx;
+    cipher_ctx_t *d_ctx;
     struct server_ctx *recv_ctx;
     struct server_ctx *send_ctx;
     struct remote *remote;

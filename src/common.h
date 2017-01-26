@@ -32,6 +32,8 @@
 #define MODULE_LOCAL
 #endif
 
+#include "crypto.h"
+
 int init_udprelay(const char *server_host, const char *server_port,
 #ifdef MODULE_LOCAL
                   const struct sockaddr *remote_addr, const int remote_addr_len,
@@ -39,7 +41,7 @@ int init_udprelay(const char *server_host, const char *server_port,
                   const ss_addr_t tunnel_addr,
 #endif
 #endif
-                  int mtu, int method, int timeout, const char *iface);
+                  int mtu, crypto_t *crypto, int timeout, const char *iface);
 
 void free_udprelay(void);
 

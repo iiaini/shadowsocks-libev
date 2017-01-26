@@ -26,7 +26,7 @@
 #include <ev.h>
 #include <libcork/ds.h>
 
-#include "encrypt.h"
+#include "crypto.h"
 #include "jconf.h"
 #include "protocol.h"
 
@@ -36,7 +36,6 @@ typedef struct listen_ctx {
     ev_io io;
     char *iface;
     int remote_num;
-    int method;
     int timeout;
     int fd;
     int mptcp;
@@ -53,8 +52,8 @@ typedef struct server {
     int fd;
     int stage;
 
-    struct enc_ctx *e_ctx;
-    struct enc_ctx *d_ctx;
+    cipher_ctx_t *e_ctx;
+    cipher_ctx_t *d_ctx;
     struct server_ctx *recv_ctx;
     struct server_ctx *send_ctx;
     struct listen_ctx *listener;

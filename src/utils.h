@@ -185,12 +185,3 @@ void *ss_realloc(void *ptr, size_t new_size);
 
 #endif // _UTILS_H
 
-void
-dump(char *tag, char *text, int len)
-{
-    int i;
-    printf("%s: ", tag);
-    for (i = 0; i < len; i++)
-        printf("0x%02x ", (uint8_t)text[i]);
-    printf("\n");
-}

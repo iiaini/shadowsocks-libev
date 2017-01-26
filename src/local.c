@@ -95,6 +95,8 @@ uint64_t rx    = 0;
 ev_tstamp last = 0;
 #endif
 
+static crypto_t *crypto;
+
 static int acl       = 0;
 static int mode      = TCP_ONLY;
 static int ipv6first = 0;
@@ -129,7 +131,7 @@ static void free_server(server_t *server);
 static void close_and_free_server(EV_P_ server_t *server);
 
 static remote_t *new_remote(int fd, int timeout);
-static server_t *new_server(int fd, int method);
+static server_t *new_server(int fd);
 
 static struct cork_dllist connections;
 
@@ -291,7 +293,7 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
 #ifdef ANDROID
                 tx += remote->buf->len;
 #endif
-                int err = ss_encrypt(remote->buf, server->e_ctx, BUF_SIZE);
+                int err = crypto->encrypt(remote->buf, server->e_ctx, BUF_SIZE);
 
                 if (err) {
                     LOGE("invalid password or cipher");
@@ -815,7 +817,7 @@ remote_recv_cb(EV_P_ ev_io *w, int revents)
 #ifdef ANDROID
         rx += server->buf->len;
 #endif
-        int err = ss_decrypt(server->buf, server->d_ctx, BUF_SIZE);
+        int err = crypto->decrypt(server->buf, server->d_ctx, BUF_SIZE);
         if (err) {
             LOGE("invalid password or cipher");
             close_and_free_remote(EV_A_ remote);
@@ -977,7 +979,7 @@ close_and_free_remote(EV_P_ remote_t *remote)
 }
 
 static server_t *
-new_server(int fd, int method)
+new_server(int fd)
 {
     server_t *server;
     server = ss_malloc(sizeof(server_t));
@@ -997,15 +999,10 @@ new_server(int fd, int method)
     server->recv_ctx->server    = server;
     server->send_ctx->server    = server;
 
-    if (method) {
-        server->e_ctx = ss_malloc(sizeof(struct enc_ctx));
-        server->d_ctx = ss_malloc(sizeof(struct enc_ctx));
-        enc_ctx_init(method, server->e_ctx, 1);
-        enc_ctx_init(method, server->d_ctx, 0);
-    } else {
-        server->e_ctx = NULL;
-        server->d_ctx = NULL;
-    }
+    server->e_ctx = ss_malloc(sizeof(cipher_ctx_t));
+    server->d_ctx = ss_malloc(sizeof(cipher_ctx_t));
+    crypto->ctx_init(crypto->cipher, server->e_ctx, 1);
+    crypto->ctx_init(crypto->cipher, server->d_ctx, 0);
 
     ev_io_init(&server->recv_ctx->io, server_recv_cb, fd, EV_READ);
     ev_io_init(&server->send_ctx->io, server_send_cb, fd, EV_WRITE);
@@ -1024,11 +1021,11 @@ free_server(server_t *server)
         server->remote->server = NULL;
     }
     if (server->e_ctx != NULL) {
-        cipher_context_release(&server->e_ctx->evp);
+        crypto->ctx_release(server->e_ctx);
         ss_free(server->e_ctx);
     }
     if (server->d_ctx != NULL) {
-        cipher_context_release(&server->d_ctx->evp);
+        crypto->ctx_release(server->d_ctx);
         ss_free(server->d_ctx);
     }
     if (server->buf != NULL) {
@@ -1139,7 +1136,7 @@ accept_cb(EV_P_ ev_io *w, int revents)
     setsockopt(serverfd, SOL_SOCKET, SO_NOSIGPIPE, &opt, sizeof(opt));
 #endif
 
-    server_t *server = new_server(serverfd, listener->method);
+    server_t *server = new_server(serverfd);
     server->listener = listener;
 
     ev_io_start(EV_A_ & server->recv_ctx->io);
@@ -1441,7 +1438,9 @@ main(int argc, char **argv)
 
     // Setup keys
     LOGI("initializing ciphers... %s", method);
-    int m = enc_init(password, method);
+    crypto = crypto_init(password, method);
+    if (crypto == NULL)
+        FATAL("failed to initialize ciphers");
 
     // Setup proxy context
     listen_ctx_t listen_ctx;
@@ -1467,7 +1466,6 @@ main(int argc, char **argv)
     }
     listen_ctx.timeout = atoi(timeout);
     listen_ctx.iface   = iface;
-    listen_ctx.method  = m;
     listen_ctx.mptcp   = mptcp;
 
     // Setup signal handler
@@ -1514,7 +1512,7 @@ main(int argc, char **argv)
         }
         struct sockaddr *addr = (struct sockaddr *)storage;
         init_udprelay(local_addr, local_port, addr,
-                      get_sockaddr_len(addr), mtu, m, listen_ctx.timeout, iface);
+                      get_sockaddr_len(addr), mtu, crypto, listen_ctx.timeout, iface);
     }
 
 #ifdef HAVE_LAUNCHD
@@ -1621,7 +1619,9 @@ start_ss_local_server(profile_t profile)
 
     // Setup keys
     LOGI("initializing ciphers... %s", method);
-    int m = enc_init(password, method);
+    crypto = crypto_init(password, method);
+    if (crypto == NULL)
+        FATAL("failed to init ciphers");
 
     struct sockaddr_storage *storage = ss_malloc(sizeof(struct sockaddr_storage));
     memset(storage, 0, sizeof(struct sockaddr_storage));
@@ -1638,7 +1638,6 @@ start_ss_local_server(profile_t profile)
     listen_ctx.remote_addr    = remote_addr_tmp;
     listen_ctx.remote_addr[0] = (struct sockaddr *)storage;
     listen_ctx.timeout        = timeout;
-    listen_ctx.method         = m;
     listen_ctx.iface          = NULL;
     listen_ctx.mptcp          = mptcp;
 
@@ -1667,7 +1666,7 @@ start_ss_local_server(profile_t profile)
         LOGI("udprelay enabled");
         struct sockaddr *addr = (struct sockaddr *)storage;
         init_udprelay(local_addr, local_port_str, addr,
-                      get_sockaddr_len(addr), mtu, m, timeout, NULL);
+                      get_sockaddr_len(addr), mtu, crypto, timeout, NULL);
     }
 
     if (strcmp(local_addr, ":") > 0)

@@ -24,7 +24,7 @@
 #define _LOCAL_H
 
 #include <ev.h>
-#include "encrypt.h"
+#include "crypto.h"
 #include "jconf.h"
 
 typedef struct listen_ctx {
@@ -32,7 +32,6 @@ typedef struct listen_ctx {
     int remote_num;
     int timeout;
     int fd;
-    int method;
     int mptcp;
     struct sockaddr **remote_addr;
 } listen_ctx_t;

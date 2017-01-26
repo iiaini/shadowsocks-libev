@@ -25,16 +25,11 @@
 #endif
 
 #include <stdint.h>
+#include <sodium.h>
 
 #include "crypto.h"
+#include "stream.h"
 #include "utils.h"
-
-struct buffer {
-    size_t idx;
-    size_t len;
-    size_t capacity;
-    char   *data;
-} buffer_t;
 
 int
 balloc(buffer_t *ptr, size_t capacity)
@@ -79,23 +74,25 @@ rand_bytes(void *output, int len)
     return 0;
 }
 
-int
-crypto_init(const char *password, const char *method);
+crypto_t *
+crypto_init(const char *password, const char *method)
 {
     int i, m = -1;
-    int aead = 0;
 
     if (method != NULL) {
         for (i = 0; i < STREAM_CIPHER_NUM; i++) {
-            if (strcmp(method, stream_supported_ciphers[i]) == 0) {
+            if (strcmp(method, supported_stream_ciphers[i]) == 0) {
                 m = i;
                 break;
             }
         }
         if (m != -1) {
-            stream_init(password, method);
-            crypto_t crypto = {
-                .method = m,
+            cipher_t *cipher = stream_init(password, method);
+            if (cipher == NULL) 
+                return NULL;
+            crypto_t *crypto = (crypto_t *)malloc(sizeof(crypto_t));
+            crypto_t tmp = {
+                .cipher = cipher,
                 .encrypt_all = &stream_encrypt_all,
                 .decrypt_all = &stream_decrypt_all,
                 .encrypt = &stream_encrypt,
@@ -103,9 +100,11 @@ crypto_init(const char *password, const char *method);
                 .ctx_init = &stream_ctx_init,
                 .ctx_release = &stream_ctx_release
             };
-            return m;
+            memcpy(crypto, &tmp, sizeof(crypto_t));
+            return crypto;
         }
 
+#if 0
         for (i = 0; i < AEAD_CIPHER_NUM; i++) {
             if (strcmp(method, aead_supported_ciphers[i]) == 0) {
                 m = i;
@@ -125,10 +124,10 @@ crypto_init(const char *password, const char *method);
             };
             return m;
         }
+#endif
+
     }
 
-    FATAL("Invalid cipher name: %s", method);
-
-    // Should not come here
-    return m;
+    LOGE("invalid cipher name: %s", method);
+    return NULL;
 }

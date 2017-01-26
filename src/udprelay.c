@@ -681,7 +681,7 @@ remote_recv_cb(EV_P_ ev_io *w, int revents)
     buf->len = r;
 
 #ifdef MODULE_LOCAL
-    int err = ss_decrypt_all(buf, server_ctx->method, buf_size);
+    int err = server_ctx->crypto->decrypt_all(buf, server_ctx->crypto->cipher, buf_size);
     if (err) {
         // drop the packet silently
         goto CLEAN_UP;
@@ -744,7 +744,7 @@ remote_recv_cb(EV_P_ ev_io *w, int revents)
     memcpy(buf->data, addr_header, addr_header_len);
     buf->len += addr_header_len;
 
-    int err = ss_encrypt_all(buf, server_ctx->method, buf_size);
+    int err = server_ctx->crypto->encrypt_all(buf, server_ctx->crypto->cipher, buf_size);
     if (err) {
         // drop the packet silently
         goto CLEAN_UP;
@@ -891,7 +891,7 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
 #ifdef MODULE_REMOTE
     tx += buf->len;
 
-    int err = ss_decrypt_all(buf, server_ctx->method, buf_size);
+    int err = server_ctx->crypto->decrypt_all(buf, server_ctx->crypto->cipher, buf_size);
     if (err) {
         // drop the packet silently
         goto CLEAN_UP;
@@ -1156,7 +1156,7 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
         memmove(buf->data, buf->data + offset, buf->len);
     }
 
-    int err = ss_encrypt_all(buf, server_ctx->method, buf_size);
+    int err = server_ctx->crypto->encrypt_all(buf, server_ctx->crypto->cipher, buf_size);
 
     if (err) {
         // drop the packet silently
@@ -1306,7 +1306,7 @@ init_udprelay(const char *server_host, const char *server_port,
               const ss_addr_t tunnel_addr,
 #endif
 #endif
-              int mtu, int method, int timeout, const char *iface)
+              int mtu, crypto_t *crypto, int timeout, const char *iface)
 {
     // Initialize ev loop
     struct ev_loop *loop = EV_DEFAULT;
@@ -1336,7 +1336,7 @@ init_udprelay(const char *server_host, const char *server_port,
     server_ctx->loop = loop;
 #endif
     server_ctx->timeout    = max(timeout, MIN_UDP_TIMEOUT);
-    server_ctx->method     = method;
+    server_ctx->crypto     = crypto;
     server_ctx->iface      = iface;
     server_ctx->conn_cache = conn_cache;
 #ifdef MODULE_LOCAL
