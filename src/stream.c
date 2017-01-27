@@ -1,5 +1,5 @@
 /*
- * stream.c - Manage stream ciphers.
+ * stream.c - Manage stream ciphers
  *
  * Copyright (C) 2013 - 2016, Max Lv <max.c.lv@gmail.com>
  *
@@ -15,7 +15,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
- * You should have recenonceed a copy of the GNU General Public License
+ * You should have received a copy of the GNU General Public License
  * along with shadowsocks-libev; see the file COPYING. If not, see
  * <http://www.gnu.org/licenses/>.
  */
@@ -36,7 +36,6 @@
 #include "stream.h"
 #include "utils.h"
 
-#define OFFSET_ROL(p, o) ((uint64_t)(*(p + o)) << (8 * o))
 
 #define SODIUM_BLOCK_SIZE   64
 
@@ -62,9 +61,6 @@
 #define SALSA20             18
 #define CHACHA20            19
 #define CHACHA20IETF        20
-
-
-static struct cache *nonce_cache;
 
 const char *supported_stream_ciphers[STREAM_CIPHER_NUM] = {
     "table",
@@ -375,7 +371,7 @@ cipher_ctx_update(cipher_ctx_t *ctx, uint8_t *output, size_t *olen,
                       const uint8_t *input, size_t ilen)
 {
     cipher_evp_t *evp = ctx->evp;
-    return !mbedtls_cipher_update(evp, (const uint8_t *)input, ilen,
+    return mbedtls_cipher_update(evp, (const uint8_t *)input, ilen,
                                   (uint8_t *)output, olen);
 }
 
@@ -386,7 +382,7 @@ stream_encrypt_all(buffer_t *plaintext, cipher_t *cipher, size_t capacity)
     stream_ctx_init(cipher, &cipher_ctx, 1);
 
     size_t nonce_len = cipher->nonce_len;
-    int err       = 1;
+    int err       = CRYPTO_ERROR;
 
     static buffer_t tmp = { 0, 0, 0, NULL };
     brealloc(&tmp, nonce_len + plaintext->len, capacity);
@@ -410,10 +406,10 @@ stream_encrypt_all(buffer_t *plaintext, cipher_t *cipher, size_t capacity)
                 plaintext->len);
     }
 
-    if (!err) {
+    if (err) {
         bfree(plaintext);
         stream_ctx_release(&cipher_ctx);
-        return -1;
+        return CRYPTO_ERROR;
     }
 
 #ifdef DEBUG
@@ -427,7 +423,7 @@ stream_encrypt_all(buffer_t *plaintext, cipher_t *cipher, size_t capacity)
     memcpy(plaintext->data, ciphertext->data, nonce_len + ciphertext->len);
     plaintext->len = nonce_len + ciphertext->len;
 
-    return 0;
+    return CRYPTO_OK;
 }
 
 int
@@ -477,13 +473,12 @@ stream_encrypt(buffer_t *plaintext, cipher_ctx_t *cipher_ctx, size_t capacity)
                     ciphertext->data + nonce_len + padding, ciphertext->len);
         }
     } else {
-        err =
-            cipher_ctx_update(cipher_ctx,
+        err = cipher_ctx_update(cipher_ctx,
                     (uint8_t *)(ciphertext->data + nonce_len),
                     &ciphertext->len, (const uint8_t *)plaintext->data,
                     plaintext->len);
-        if (!err) {
-            return -1;
+        if (err) {
+            return CRYPTO_ERROR;
         }
     }
 
@@ -496,17 +491,17 @@ stream_encrypt(buffer_t *plaintext, cipher_ctx_t *cipher_ctx, size_t capacity)
     memcpy(plaintext->data, ciphertext->data, nonce_len + ciphertext->len);
     plaintext->len = nonce_len + ciphertext->len;
 
-    return 0;
+    return CRYPTO_OK;
 }
 
 int
 stream_decrypt_all(buffer_t *ciphertext, cipher_t *cipher, size_t capacity)
 {
     size_t nonce_len = cipher->nonce_len;
-    int ret       = 1;
+    int err       = CRYPTO_ERROR;
 
     if (ciphertext->len <= nonce_len) {
-        return -1;
+        return CRYPTO_ERROR;
     }
 
     cipher_ctx_t cipher_ctx;
@@ -527,15 +522,15 @@ stream_decrypt_all(buffer_t *ciphertext, cipher_t *cipher, size_t capacity)
                 (uint64_t)(ciphertext->len - nonce_len),
                 (const uint8_t *)nonce, 0, cipher->key, cipher->method);
     } else {
-        ret = cipher_ctx_update(&cipher_ctx, (uint8_t *)plaintext->data, &plaintext->len,
+        err = cipher_ctx_update(&cipher_ctx, (uint8_t *)plaintext->data, &plaintext->len,
                 (const uint8_t *)(ciphertext->data + nonce_len),
                 ciphertext->len - nonce_len);
     }
 
-    if (!ret) {
+    if (err) {
         bfree(ciphertext);
         stream_ctx_release(&cipher_ctx);
-        return -1;
+        return CRYPTO_ERROR;
     }
 
 #ifdef DEBUG
@@ -549,7 +544,7 @@ stream_decrypt_all(buffer_t *ciphertext, cipher_t *cipher, size_t capacity)
     memcpy(ciphertext->data, plaintext->data, plaintext->len);
     ciphertext->len = plaintext->len;
 
-    return 0;
+    return CRYPTO_OK;
 }
 
 int
@@ -569,6 +564,8 @@ stream_decrypt(buffer_t *ciphertext, cipher_ctx_t *cipher_ctx, size_t capacity)
     plaintext->len = ciphertext->len;
 
     if (!cipher_ctx->init) {
+        if (plaintext->len <= nonce_len) return CRYPTO_ERROR;
+
         uint8_t nonce[MAX_NONCE_LENGTH];
         nonce_len      = cipher->nonce_len;
         plaintext->len -= nonce_len;
@@ -614,9 +611,9 @@ stream_decrypt(buffer_t *ciphertext, cipher_ctx_t *cipher_ctx, size_t capacity)
                 ciphertext->len - nonce_len);
     }
 
-    if (!err) {
+    if (err) {
         bfree(ciphertext);
-        return -1;
+        return CRYPTO_ERROR;
     }
 
 #ifdef DEBUG
@@ -628,7 +625,7 @@ stream_decrypt(buffer_t *ciphertext, cipher_ctx_t *cipher_ctx, size_t capacity)
     memcpy(ciphertext->data, plaintext->data, plaintext->len);
     ciphertext->len = plaintext->len;
 
-    return 0;
+    return CRYPTO_OK;
 }
 
 void
@@ -654,7 +651,7 @@ stream_ctx_release(cipher_ctx_t *cipher_ctx)
     ss_free(cipher_ctx->evp);
 }
 
-cipher_t *
+cipher_t*
 stream_key_init(int method, const char *pass)
 {
     if (method <= TABLE || method >= STREAM_CIPHER_NUM) {
@@ -662,19 +659,11 @@ stream_key_init(int method, const char *pass)
         return NULL;
     }
 
-    // Initialize cache
-    cache_create(&nonce_cache, 1024, NULL);
-
-    cipher_t *cipher = (cipher_t *)malloc(sizeof(cipher_t));
+    cipher_t *cipher = (cipher_t *)ss_malloc(sizeof(cipher_t));
     memset(cipher, 0, sizeof(cipher_t));
 
-    // Initialize sodium for random generator
-    if (sodium_init() == -1) {
-        FATAL("Failed to initialize sodium");
-    }
-
     if (method == SALSA20 || method == CHACHA20 || method == CHACHA20IETF) {
-        cipher_kt_t *cipher_info = (cipher_kt_t *)malloc(sizeof(cipher_kt_t));
+        cipher_kt_t *cipher_info = (cipher_kt_t *)ss_malloc(sizeof(cipher_kt_t));
         cipher->info             = cipher_info;
         cipher->info->base       = NULL;
         cipher->info->key_bitlen = supported_stream_ciphers_key_size[method] * 8;

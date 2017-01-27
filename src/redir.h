@@ -46,6 +46,7 @@ typedef struct server {
     int fd;
 
     buffer_t *buf;
+
     struct sockaddr_storage destaddr;
     struct enc_ctx *e_ctx;
     struct enc_ctx *d_ctx;

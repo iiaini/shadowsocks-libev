@@ -301,6 +301,13 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
                     close_and_free_server(EV_A_ server);
                     return;
                 }
+
+                if (server->abuf) {
+                    bprepend(remote->buf, server->abuf, BUF_SIZE);
+                    bfree(server->abuf);
+                    ss_free(server->abuf);
+                    server->abuf = NULL;
+                }
             }
 
             if (!remote->send_ctx->connected) {
@@ -524,9 +531,7 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
 
             char host[257], ip[INET6_ADDRSTRLEN], port[16];
 
-            buffer_t ss_addr_to_send;
-            buffer_t *abuf = &ss_addr_to_send;
-            balloc(abuf, BUF_SIZE);
+            buffer_t *abuf = server->abuf;
 
             abuf->data[abuf->len++] = request->atyp;
             int atyp = request->atyp;
@@ -571,7 +576,6 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
                     sprintf(port, "%d", p);
                 }
             } else {
-                bfree(abuf);
                 LOGE("unsupported addrtype: %d", request->atyp);
                 close_and_free_remote(EV_A_ remote);
                 close_and_free_server(EV_A_ server);
@@ -593,7 +597,6 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
                                                      buf->len - 3 - abuf->len, &hostname);
                 if (ret == -1 && buf->len < BUF_SIZE) {
                     server->stage = STAGE_PARSE;
-                    bfree(abuf);
                     return;
                 } else if (ret > 0) {
                     sni_detected = 1;
@@ -681,31 +684,28 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
             }
 
             if (remote == NULL) {
-                bfree(abuf);
                 LOGE("invalid remote addr");
                 close_and_free_server(EV_A_ server);
                 return;
             }
 
             if (!remote->direct) {
-                brealloc(remote->buf, buf->len + abuf->len, BUF_SIZE);
-                memcpy(remote->buf->data, abuf->data, abuf->len);
-                remote->buf->len = buf->len + abuf->len;
+                int err = crypto->encrypt(abuf, server->e_ctx, BUF_SIZE);
+                if (err) {
+                    LOGE("invalid password or cipher");
+                    close_and_free_remote(EV_A_ remote);
+                    close_and_free_server(EV_A_ server);
+                    return;
+                }
+            }
 
-                if (buf->len > 0) {
-                    memcpy(remote->buf->data + abuf->len, buf->data, buf->len);
-                }
-            } else {
-                if (buf->len > 0) {
-                    memcpy(remote->buf->data, buf->data, buf->len);
-                    remote->buf->len = buf->len;
-                }
+            if (buf->len > 0) {
+                memcpy(remote->buf->data, buf->data, buf->len);
+                remote->buf->len = buf->len;
             }
 
             server->remote = remote;
             remote->server = server;
-
-            bfree(abuf);
         }
     }
 }
@@ -989,7 +989,9 @@ new_server(int fd)
     server->recv_ctx = ss_malloc(sizeof(server_ctx_t));
     server->send_ctx = ss_malloc(sizeof(server_ctx_t));
     server->buf      = ss_malloc(sizeof(buffer_t));
+    server->abuf     = ss_malloc(sizeof(buffer_t));
     balloc(server->buf, BUF_SIZE);
+    balloc(server->abuf, BUF_SIZE);
     memset(server->recv_ctx, 0, sizeof(server_ctx_t));
     memset(server->send_ctx, 0, sizeof(server_ctx_t));
     server->stage               = STAGE_INIT;
@@ -1031,6 +1033,10 @@ free_server(server_t *server)
     if (server->buf != NULL) {
         bfree(server->buf);
         ss_free(server->buf);
+    }
+    if (server->abuf != NULL) {
+        bfree(server->abuf);
+        ss_free(server->abuf);
     }
     ss_free(server->recv_ctx);
     ss_free(server->send_ctx);

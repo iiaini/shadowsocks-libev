@@ -58,6 +58,7 @@ typedef mbedtls_md_info_t digest_type_t;
 
 #define CRYPTO_ERROR     -2
 #define CRYPTO_NEED_MORE -1
+#define CRYPTO_OK         0
 
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
@@ -74,6 +75,7 @@ typedef struct {
     cipher_kt_t *info;
     size_t nonce_len;
     size_t key_len;
+    size_t tag_len;
     uint8_t key[MAX_KEY_LENGTH];
 } cipher_t;
 
@@ -81,7 +83,8 @@ typedef struct {
     uint8_t init;
     uint64_t counter;
     cipher_evp_t *evp;
-    cipher_t* cipher;
+    cipher_t *cipher;
+    buffer_t *buf;
     uint8_t nonce[MAX_NONCE_LENGTH];
 } cipher_ctx_t;
 
@@ -99,11 +102,13 @@ typedef struct crypto {
 
 int balloc(buffer_t *ptr, size_t capacity);
 int brealloc(buffer_t *ptr, size_t len, size_t capacity);
+int bprepend(buffer_t *dst, buffer_t *src, size_t capacity);
 void bfree(buffer_t *ptr);
 int rand_bytes(void *output, int len);
 
 crypto_t *crypto_init(const char *password, const char *method);
 
+extern struct cache *nonce_cache;
 extern const char *supported_stream_ciphers[];
 // extern const char *supported_stream_ciphers;
 

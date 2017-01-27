@@ -474,19 +474,24 @@ remote_send_cb(EV_P_ ev_io *w, int revents)
 
             abuf->len += 2;
 
-            brealloc(remote->buf, remote->buf->len + abuf->len, BUF_SIZE);
-            memmove(remote->buf->data + abuf->len, remote->buf->data, remote->buf->len);
-            memcpy(remote->buf->data, abuf->data, abuf->len);
-            remote->buf->len += abuf->len;
-            bfree(abuf);
-
-            int err = ss_encrypt(remote->buf, server->e_ctx, BUF_SIZE);
+            int err = crypto->encrypt(abuf, server->e_ctx, BUF_SIZE);
             if (err) {
                 LOGE("invalid password or cipher");
                 close_and_free_remote(EV_A_ remote);
                 close_and_free_server(EV_A_ server);
                 return;
             }
+
+            int err = crypto->encrypt(remote->buf, server->e_ctx, BUF_SIZE);
+            if (err) {
+                LOGE("invalid password or cipher");
+                close_and_free_remote(EV_A_ remote);
+                close_and_free_server(EV_A_ server);
+                return;
+            }
+
+            bpreppend(remote->buf, abuf, BUF_SIZE);
+            bfree(abuf);
 
             ev_io_start(EV_A_ & remote->recv_ctx->io);
         } else {

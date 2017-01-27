@@ -27,9 +27,12 @@
 #include <stdint.h>
 #include <sodium.h>
 
+#include "cache.h"
 #include "crypto.h"
 #include "stream.h"
 #include "utils.h"
+
+struct cache *nonce_cache;
 
 int
 balloc(buffer_t *ptr, size_t capacity)
@@ -67,6 +70,16 @@ bfree(buffer_t *ptr)
 }
 
 int
+bprepend(buffer_t *dst, buffer_t *src, size_t capacity)
+{
+    brealloc(dst, dst->len + src->len, capacity);
+    memmove(dst->data + src->len, dst->data, dst->len);
+    memcpy(dst->data, src->data, src->len);
+    dst->len = dst->len + src->len;
+    return dst->len;
+}
+
+int
 rand_bytes(void *output, int len)
 {
     randombytes_buf(output, len);
@@ -78,6 +91,14 @@ crypto_t *
 crypto_init(const char *password, const char *method)
 {
     int i, m = -1;
+
+    // Initialize sodium for random generator
+    if (sodium_init() == -1) {
+        FATAL("Failed to initialize sodium");
+    }
+
+    // Initialize NONCE cache
+    cache_create(&nonce_cache, 1024, NULL);
 
     if (method != NULL) {
         for (i = 0; i < STREAM_CIPHER_NUM; i++) {

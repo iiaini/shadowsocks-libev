@@ -60,6 +60,7 @@ typedef struct server {
     struct remote *remote;
 
     buffer_t *buf;
+    buffer_t *abuf;
 
     struct cork_dllist_item entries;
 } server_t;
@@ -79,6 +80,7 @@ typedef struct remote {
     uint32_t counter;
 
     buffer_t *buf;
+
     struct remote_ctx *recv_ctx;
     struct remote_ctx *send_ctx;
     struct server *server;

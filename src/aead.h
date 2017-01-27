@@ -28,27 +28,10 @@
 
 // currently, XCHACHA20POLY1305IETF is not released yet
 // XCHACHA20POLY1305 is removed in upstream
-
 #ifdef FS_HAVE_XCHACHA20IETF
 #define AEAD_CIPHER_NUM              6
 #else
 #define AEAD_CIPHER_NUM              5
-#endif
-
-#define NONE                    (-1)
-#define AES128GCM               0
-#define AES192GCM               1
-#define AES256GCM               2
-/*
- * methods above requires gcm context
- * methods below doesn't require it,
- * then we need to fake one
- */
-#define CHACHA20POLY1305        3
-#define CHACHA20POLY1305IETF    4
-
-#ifdef FS_HAVE_XCHACHA20IETF
-#define XCHACHA20POLY1305IETF   5
 #endif
 
 /* for udprelay */
