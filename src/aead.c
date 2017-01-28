@@ -199,7 +199,7 @@ cipher_aead_encrypt(cipher_ctx_t *cipher_ctx,
                     size_t nlen,
                     size_t tlen)
 {
-    int err            = CRYPTO_ERROR;
+    int err            = CRYPTO_OK;
     uint64_t long_clen = -1;
 
     switch (cipher_ctx->cipher->method) {
@@ -390,7 +390,7 @@ aead_encrypt_all(buffer_t *plaintext, cipher_t *cipher, size_t capacity)
 
     size_t nonce_len = cipher->nonce_len;
     size_t tag_len   = cipher->tag_len;
-    int err          = 1;
+    int err          = CRYPTO_OK;
 
     static buffer_t tmp = { 0, 0, 0, NULL };
     brealloc(&tmp, nonce_len + tag_len + plaintext->len, capacity);
@@ -417,7 +417,7 @@ aead_encrypt_all(buffer_t *plaintext, cipher_t *cipher, size_t capacity)
                               nonce_len,
                               tag_len);
 
-    if (!err) {
+    if (err) {
         bfree(plaintext);
         aead_ctx_release(&cipher_ctx);
         return CRYPTO_ERROR;
@@ -444,7 +444,7 @@ aead_decrypt_all(buffer_t *ciphertext, cipher_t *cipher, size_t capacity)
 {
     size_t nonce_len = cipher->nonce_len;
     size_t tag_len   = cipher->tag_len;
-    int err          = CRYPTO_ERROR;
+    int err          = CRYPTO_OK;
 
     if (ciphertext->len <= nonce_len + tag_len) {
         return CRYPTO_ERROR;

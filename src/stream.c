@@ -317,7 +317,7 @@ stream_encrypt_all(buffer_t *plaintext, cipher_t *cipher, size_t capacity)
     stream_ctx_init(cipher, &cipher_ctx, 1);
 
     size_t nonce_len = cipher->nonce_len;
-    int err       = CRYPTO_ERROR;
+    int err       = CRYPTO_OK;
 
     static buffer_t tmp = { 0, 0, 0, NULL };
     brealloc(&tmp, nonce_len + plaintext->len, capacity);
@@ -371,7 +371,7 @@ stream_encrypt(buffer_t *plaintext, cipher_ctx_t *cipher_ctx, size_t capacity)
     
     static buffer_t tmp = { 0, 0, 0, NULL };
 
-    int err       = 1;
+    int err       = CRYPTO_OK;
     size_t nonce_len = 0;
     if (!cipher_ctx->init) {
         nonce_len = cipher_ctx->cipher->nonce_len;
@@ -433,7 +433,7 @@ int
 stream_decrypt_all(buffer_t *ciphertext, cipher_t *cipher, size_t capacity)
 {
     size_t nonce_len = cipher->nonce_len;
-    int err       = CRYPTO_ERROR;
+    int err       = CRYPTO_OK;
 
     if (ciphertext->len <= nonce_len) {
         return CRYPTO_ERROR;
@@ -492,7 +492,7 @@ stream_decrypt(buffer_t *ciphertext, cipher_ctx_t *cipher_ctx, size_t capacity)
     static buffer_t tmp = { 0, 0, 0, NULL };
 
     size_t nonce_len = 0;
-    int err       = 1;
+    int err       = CRYPTO_OK;
 
     brealloc(&tmp, ciphertext->len, capacity);
     buffer_t *plaintext = &tmp;
