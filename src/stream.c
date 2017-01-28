@@ -24,7 +24,6 @@
 #include "config.h"
 #endif
 
-#include <mbedtls/md5.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/version.h>
@@ -147,17 +146,6 @@ crypto_stream_xor_ic(uint8_t *c, const uint8_t *m, uint64_t mlen,
     return 0;
 }
 
-static unsigned char *
-ss_md5(const unsigned char *d, size_t n, unsigned char *md)
-{
-    static unsigned char m[16];
-    if (md == NULL) {
-        md = m;
-    }
-    mbedtls_md5(d, n, md);
-    return md;
-}
-
 #ifdef DEBUG
 void
 dump(char *tag, char *text, int len)
@@ -197,52 +185,11 @@ cipher_key_size(const cipher_t *cipher)
     return cipher->info->key_bitlen / 8;
 }
 
-int
-bytes_to_key(const cipher_t *cipher, const digest_type_t *md,
-             const uint8_t *pass, uint8_t *key)
-{
-    size_t datal;
-    datal = strlen((const char *)pass);
-
-    mbedtls_md_context_t c;
-    unsigned char md_buf[MAX_MD_SIZE];
-    int nkey;
-    int addmd;
-    unsigned int i, j, mds;
-
-    nkey = cipher_key_size(cipher);
-    mds  = mbedtls_md_get_size(md);
-    memset(&c, 0, sizeof(mbedtls_md_context_t));
-
-    if (pass == NULL)
-        return nkey;
-    if (mbedtls_md_setup(&c, md, 1))
-        return 0;
-
-    for (j = 0, addmd = 0; j < nkey; addmd++) {
-        mbedtls_md_starts(&c);
-        if (addmd) {
-            mbedtls_md_update(&c, md_buf, mds);
-        }
-        mbedtls_md_update(&c, pass, datal);
-        mbedtls_md_finish(&c, &(md_buf[0]));
-
-        for (i = 0; i < mds; i++, j++) {
-            if (j >= nkey)
-                break;
-            key[j] = md_buf[i];
-        }
-    }
-
-    mbedtls_md_free(&c);
-    return nkey;
-}
-
 const cipher_kt_t *
-get_cipher_type(int method)
+stream_get_cipher_type(int method)
 {
     if (method <= TABLE || method >= STREAM_CIPHER_NUM) {
-        LOGE("get_cipher_type(): Illegal method");
+        LOGE("stream_get_cipher_type(): Illegal method");
         return NULL;
     }
 
@@ -264,17 +211,6 @@ get_cipher_type(int method)
     return mbedtls_cipher_info_from_string(mbedtlsname);
 }
 
-const digest_type_t *
-get_digest_type(const char *digest)
-{
-    if (digest == NULL) {
-        LOGE("get_digest_type(): Digest name is null");
-        return NULL;
-    }
-
-    return mbedtls_md_info_from_string(digest);
-}
-
 void
 stream_cipher_ctx_init(cipher_ctx_t *ctx, int method, int enc)
 {
@@ -288,7 +224,7 @@ stream_cipher_ctx_init(cipher_ctx_t *ctx, int method, int enc)
     }
 
     const char *ciphername = supported_stream_ciphers[method];
-    const cipher_kt_t *cipher = get_cipher_type(method);
+    const cipher_kt_t *cipher = stream_get_cipher_type(method);
 
     ctx->evp = ss_malloc(sizeof(cipher_evp_t));
     memset(ctx->evp, 0, sizeof(cipher_evp_t));
@@ -336,7 +272,7 @@ cipher_ctx_set_nonce(cipher_ctx_t *cipher_ctx, uint8_t *nonce, size_t nonce_len,
         unsigned char key_nonce[32];
         memcpy(key_nonce, cipher->key, 16);
         memcpy(key_nonce + 16, cipher_ctx->nonce, 16);
-        true_key = ss_md5(key_nonce, 32, NULL);
+        true_key = crypto_md5(key_nonce, 32, NULL);
         nonce_len   = 0;
     } else {
         true_key = cipher->key;
@@ -351,7 +287,6 @@ cipher_ctx_set_nonce(cipher_ctx_t *cipher_ctx, uint8_t *nonce, size_t nonce_len,
         mbedtls_cipher_free(evp);
         FATAL("Cannot set mbed TLS cipher key");
     }
-
     if (mbedtls_cipher_set_iv(evp, nonce, nonce_len) != 0) {
         mbedtls_cipher_free(evp);
         FATAL("Cannot set mbed TLS cipher NONCE");
@@ -669,7 +604,7 @@ stream_key_init(int method, const char *pass)
         cipher->info->key_bitlen = supported_stream_ciphers_key_size[method] * 8;
         cipher->info->iv_size    = supported_stream_ciphers_nonce_size[method];
     } else {
-        cipher->info = (cipher_kt_t *)get_cipher_type(method);
+        cipher->info = (cipher_kt_t *)stream_get_cipher_type(method);
     }
 
     if (cipher->info == NULL && cipher->key_len == 0) {
@@ -677,12 +612,8 @@ stream_key_init(int method, const char *pass)
         FATAL("Cannot initialize cipher");
     }
 
-    const digest_type_t *md = get_digest_type("MD5");
-    if (md == NULL) {
-        FATAL("MD5 Digest not found in crypto library");
-    }
-
-    cipher->key_len = bytes_to_key(cipher, md, (const uint8_t *)pass, cipher->key);
+    cipher->key_len = crypto_derive_key(cipher, (const uint8_t *)pass,
+            cipher->key, cipher_key_size(cipher));
 
     if (cipher->key_len == 0) {
         FATAL("Cannot generate key and NONCE");

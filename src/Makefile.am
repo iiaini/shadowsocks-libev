@@ -18,6 +18,7 @@ sni_src = http.c \
           rule.c
 
 crypto_src = crypto.c \
+			 aead.c \
 			 stream.c
 
 plugin_src = plugin.c

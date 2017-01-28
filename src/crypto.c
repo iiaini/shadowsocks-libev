@@ -26,10 +26,12 @@
 
 #include <stdint.h>
 #include <sodium.h>
+#include <mbedtls/md5.h>
 
 #include "cache.h"
 #include "crypto.h"
 #include "stream.h"
+#include "aead.h"
 #include "utils.h"
 
 struct cache *nonce_cache;
@@ -87,6 +89,61 @@ rand_bytes(void *output, int len)
     return 0;
 }
 
+unsigned char *
+crypto_md5(const unsigned char *d, size_t n, unsigned char *md)
+{
+    static unsigned char m[16];
+    if (md == NULL) {
+        md = m;
+    }
+    mbedtls_md5(d, n, md);
+    return md;
+}
+
+int
+crypto_derive_key(const cipher_t *cipher, const uint8_t *pass,
+        uint8_t *key, size_t nkey)
+{
+    size_t datal;
+    datal = strlen((const char *)pass);
+
+    const digest_type_t *md = mbedtls_md_info_from_string("MD5");
+    if (md == NULL) {
+        FATAL("MD5 Digest not found in crypto library");
+    }
+
+    mbedtls_md_context_t c;
+    unsigned char md_buf[MAX_MD_SIZE];
+    int addmd;
+    unsigned int i, j, mds;
+
+    mds  = mbedtls_md_get_size(md);
+    memset(&c, 0, sizeof(mbedtls_md_context_t));
+
+    if (pass == NULL)
+        return nkey;
+    if (mbedtls_md_setup(&c, md, 1))
+        return 0;
+
+    for (j = 0, addmd = 0; j < nkey; addmd++) {
+        mbedtls_md_starts(&c);
+        if (addmd) {
+            mbedtls_md_update(&c, md_buf, mds);
+        }
+        mbedtls_md_update(&c, pass, datal);
+        mbedtls_md_finish(&c, &(md_buf[0]));
+
+        for (i = 0; i < mds; i++, j++) {
+            if (j >= nkey)
+                break;
+            key[j] = md_buf[i];
+        }
+    }
+
+    mbedtls_md_free(&c);
+    return nkey;
+}
+
 crypto_t *
 crypto_init(const char *password, const char *method)
 {
@@ -125,17 +182,19 @@ crypto_init(const char *password, const char *method)
             return crypto;
         }
 
-#if 0
         for (i = 0; i < AEAD_CIPHER_NUM; i++) {
-            if (strcmp(method, aead_supported_ciphers[i]) == 0) {
+            if (strcmp(method, supported_aead_ciphers[i]) == 0) {
                 m = i;
                 break;
             }
         }
         if (m != -1) {
-            aead_init(password, method);
-            crypto_t crypto = {
-                .method = m,
+            cipher_t *cipher = aead_init(password, method);
+            if (cipher == NULL) 
+                return NULL;
+            crypto_t *crypto = (crypto_t *)ss_malloc(sizeof(crypto_t));
+            crypto_t tmp = {
+                .cipher = cipher,
                 .encrypt_all = &aead_encrypt_all,
                 .decrypt_all = &aead_decrypt_all,
                 .encrypt = &aead_encrypt,
@@ -143,10 +202,9 @@ crypto_init(const char *password, const char *method)
                 .ctx_init = &aead_ctx_init,
                 .ctx_release = &aead_ctx_release
             };
-            return m;
+            memcpy(crypto, &tmp, sizeof(crypto_t));
+            return crypto;
         }
-#endif
-
     }
 
     LOGE("invalid cipher name: %s", method);

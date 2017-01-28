@@ -41,7 +41,7 @@ typedef mbedtls_cipher_info_t cipher_kt_t;
 typedef mbedtls_cipher_context_t cipher_evp_t;
 typedef mbedtls_md_info_t digest_type_t;
 #define MAX_KEY_LENGTH 64
-#define MAX_NONCE_LENGTH MBEDTLS_MAX_IV_LENGTH
+#define MAX_NONCE_LENGTH 32 
 #define MAX_MD_SIZE MBEDTLS_MD_MAX_SIZE
 /* we must have MBEDTLS_CIPHER_MODE_CFB defined */
 #if !defined(MBEDTLS_CIPHER_MODE_CFB)
@@ -84,7 +84,7 @@ typedef struct {
     uint64_t counter;
     cipher_evp_t *evp;
     cipher_t *cipher;
-    buffer_t *buf;
+    buffer_t *chunk;
     uint8_t nonce[MAX_NONCE_LENGTH];
 } cipher_ctx_t;
 
@@ -107,9 +107,13 @@ void bfree(buffer_t *ptr);
 int rand_bytes(void *output, int len);
 
 crypto_t *crypto_init(const char *password, const char *method);
+unsigned char * crypto_md5(const unsigned char *d, size_t n,
+        unsigned char *md);
+int crypto_derive_key(const cipher_t *cipher,
+           const uint8_t *pass, uint8_t *key, size_t nkey);
 
 extern struct cache *nonce_cache;
 extern const char *supported_stream_ciphers[];
-// extern const char *supported_stream_ciphers;
+extern const char *supported_aead_ciphers[];
 
 #endif // _CRYPTO_H

@@ -1,5 +1,5 @@
 /*
- * encrypt.h - Define the enryptor's interface
+ * aead.h - Define the AEAD's interface
  *
  * Copyright (C) 2013 - 2016, Max Lv <max.c.lv@gmail.com>
  *
@@ -25,7 +25,6 @@
 
 #include "crypto.h"
 
-
 // currently, XCHACHA20POLY1305IETF is not released yet
 // XCHACHA20POLY1305 is removed in upstream
 #ifdef FS_HAVE_XCHACHA20IETF
@@ -34,16 +33,14 @@
 #define AEAD_CIPHER_NUM              5
 #endif
 
-/* for udprelay */
-int aead_encrypt_all(buffer_t *plaintext, int method, size_t capacity);
-int aead_decrypt_all(buffer_t *ciphertext, int method, size_t capacity);
+int aead_encrypt_all(buffer_t *, cipher_t *, size_t);
+int aead_decrypt_all(buffer_t *, cipher_t *, size_t);
 
-/* for local, redir, manager, etc */
-int aead_encrypt(buffer_t *plaintext, enc_ctx_t *ctx, size_t capacity);
-int aead_decrypt(buffer_t *ciphertext, enc_ctx_t *ctx, size_t capacity);
+int aead_encrypt(buffer_t *, cipher_ctx_t *, size_t);
+int aead_decrypt(buffer_t *, cipher_ctx_t *, size_t);
 
-void aead_ctx_init(int method, enc_ctx_t *ctx, int enc);
-void aead_ctx_release(cipher_ctx_t *evp);
-int aead_init(const char *pass, const char *method);
+void aead_ctx_init(cipher_t *, cipher_ctx_t *, int);
+void aead_ctx_release(cipher_ctx_t *);
+cipher_t *aead_init(const char *pass, const char *method);
 
 #endif // _AEAD_H

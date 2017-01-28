@@ -376,12 +376,15 @@ remote_recv_cb(EV_P_ ev_io *w, int revents)
     server->buf->len = r;
 
     int err = crypto->decrypt(server->buf, server->d_ctx, BUF_SIZE);
-    if (err) {
+    if (err == CRYPTO_ERROR) {
         LOGE("invalid password or cipher");
         close_and_free_remote(EV_A_ remote);
         close_and_free_server(EV_A_ server);
         return;
+    } else if (err == CRYPTO_NEED_MORE) {
+        return; // Wait for more
     }
+
     int s = send(server->fd, server->buf->data, server->buf->len, 0);
 
     if (s == -1) {
