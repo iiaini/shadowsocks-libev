@@ -200,7 +200,7 @@ cipher_aead_encrypt(cipher_ctx_t *cipher_ctx,
                     size_t tlen)
 {
     int err            = CRYPTO_OK;
-    uint64_t long_clen = -1;
+    unsigned long long long_clen = 0;
 
     switch (cipher_ctx->cipher->method) {
     case AES128GCM:
@@ -213,23 +213,23 @@ cipher_aead_encrypt(cipher_ctx_t *cipher_ctx,
     case CHACHA20POLY1305:
         err = crypto_aead_chacha20poly1305_encrypt(c, &long_clen, m, mlen,
                                                    ad, adlen, NULL, n, k);
+        *clen = (size_t)long_clen;
         break;
     case CHACHA20POLY1305IETF:
         err = crypto_aead_chacha20poly1305_ietf_encrypt(c, &long_clen, m, mlen,
                                                         ad, adlen, NULL, n, k);
+        *clen = (size_t)long_clen;
         break;
 #ifdef FS_HAVE_XCHACHA20IETF
     case XCHACHA20POLY1305IETF:
         err = crypto_aead_xchacha20poly1305_ietf_encrypt(c, &long_clen, m, mlen,
                                                          ad, adlen, NULL, n, k);
+        *clen = (size_t)long_clen;
         break;
 #endif
     default:
         return CRYPTO_ERROR;
     }
-
-    if (long_clen != -1)
-        *clen = (size_t)long_clen; // it's safe to cast 64bit to 32bit length here
 
     return err;
 }
@@ -248,7 +248,7 @@ cipher_aead_decrypt(cipher_ctx_t *cipher_ctx,
                     size_t tlen)
 {
     int err            = CRYPTO_ERROR;
-    uint64_t long_plen = -1;
+    unsigned long long long_plen = 0;
 
     switch (cipher_ctx->cipher->method) {
     case AES128GCM:
@@ -260,23 +260,22 @@ cipher_aead_decrypt(cipher_ctx_t *cipher_ctx,
     case CHACHA20POLY1305:
         err = crypto_aead_chacha20poly1305_decrypt(p, &long_plen, NULL, m, mlen,
                                                    ad, adlen, n, k);
+        *plen = (size_t)long_plen; // it's safe to cast 64bit to 32bit length here
         break;
     case CHACHA20POLY1305IETF:
         err = crypto_aead_chacha20poly1305_ietf_decrypt(p, &long_plen, NULL, m, mlen,
                                                         ad, adlen, n, k);
+        *plen = (size_t)long_plen; // it's safe to cast 64bit to 32bit length here
         break;
 #ifdef FS_HAVE_XCHACHA20IETF
     case XCHACHA20POLY1305IETF:
         err = crypto_aead_xchacha20poly1305_ietf_decrypt(p, &long_plen, NULL, m, mlen,
                                                          ad, adlen, n, k);
+        *plen = (size_t)long_plen; // it's safe to cast 64bit to 32bit length here
         break;
 #endif
     default:
         return CRYPTO_ERROR;
-    }
-
-    if (long_plen != -1) {
-        *plen = (size_t)long_plen; // it's safe to cast 64bit to 32bit length here
     }
 
     return err;

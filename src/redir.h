@@ -47,15 +47,16 @@ typedef struct server {
 
     buffer_t *buf;
 
-    struct sockaddr_storage destaddr;
-    struct enc_ctx *e_ctx;
-    struct enc_ctx *d_ctx;
+    cipher_ctx_t *e_ctx;
+    cipher_ctx_t *d_ctx;
     struct server_ctx *recv_ctx;
     struct server_ctx *send_ctx;
     struct remote *remote;
 
     char *hostname;
     size_t hostname_len;
+
+    struct sockaddr_storage destaddr;
 } server_t;
 
 typedef struct remote_ctx {
