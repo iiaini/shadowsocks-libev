@@ -138,6 +138,7 @@ dump(char *tag, char *text, int len)
         printf("0x%02x ", (uint8_t)text[i]);
     printf("\n");
 }
+
 #endif
 
 const char *supported_aead_ciphers[AEAD_CIPHER_NUM] = {
@@ -199,7 +200,7 @@ cipher_aead_encrypt(cipher_ctx_t *cipher_ctx,
                     size_t nlen,
                     size_t tlen)
 {
-    int err            = CRYPTO_OK;
+    int err                      = CRYPTO_OK;
     unsigned long long long_clen = 0;
 
     switch (cipher_ctx->cipher->method) {
@@ -247,7 +248,7 @@ cipher_aead_decrypt(cipher_ctx_t *cipher_ctx,
                     size_t nlen,
                     size_t tlen)
 {
-    int err            = CRYPTO_ERROR;
+    int err                      = CRYPTO_ERROR;
     unsigned long long long_plen = 0;
 
     switch (cipher_ctx->cipher->method) {
@@ -529,19 +530,24 @@ aead_chunk_encrypt(cipher_ctx_t *ctx, uint8_t *p, uint8_t *c, uint8_t *n,
 int
 aead_encrypt(buffer_t *plaintext, cipher_ctx_t *cipher_ctx, size_t capacity)
 {
+    if (cipher_ctx == NULL)
+        return CRYPTO_ERROR;
+
+    if (plaintext->len == 0) {
+        return CRYPTO_OK;
+    }
+
     static buffer_t tmp = { 0, 0, 0, NULL };
     buffer_t *ciphertext;
 
-    cipher_t *cipher = cipher_ctx->cipher;
-    int err          = CRYPTO_ERROR;
+    cipher_t *cipher  = cipher_ctx->cipher;
+    int err           = CRYPTO_ERROR;
     size_t nonce_ofst = 0;
-    size_t tag_len   = cipher->tag_len;
-
-    if (plaintext->len == 0)
-        return CRYPTO_OK;
+    size_t nonce_len  = cipher->nonce_len;
+    size_t tag_len    = cipher->tag_len;
 
     if (!cipher_ctx->init) {
-        nonce_ofst = cipher->nonce_len;
+        nonce_ofst = nonce_len;
     }
 
     size_t out_len = nonce_ofst + 2 * tag_len + plaintext->len + CHUNK_SIZE_LEN;
@@ -550,16 +556,16 @@ aead_encrypt(buffer_t *plaintext, cipher_ctx_t *cipher_ctx, size_t capacity)
     ciphertext->len = out_len;
 
     if (!cipher_ctx->init) {
-        memcpy(ciphertext->data, cipher_ctx->nonce, cipher->nonce_len);
+        memcpy(ciphertext->data, cipher_ctx->nonce, nonce_len);
         cipher_ctx->init = 1;
     }
 
     err = aead_chunk_encrypt(cipher_ctx,
                              (uint8_t *)plaintext->data,
                              (uint8_t *)ciphertext->data + nonce_ofst,
-                             cipher_ctx->nonce, plaintext->len, cipher->nonce_len, tag_len);
+                             cipher_ctx->nonce, plaintext->len, nonce_len, tag_len);
     if (err)
-        return CRYPTO_ERROR;
+        return err;
 
 #ifdef DEBUG
     dump("PLAIN", plaintext->data, plaintext->len);
@@ -618,7 +624,7 @@ aead_chunk_decrypt(cipher_ctx_t *ctx, uint8_t *p, uint8_t *c, uint8_t *n,
 int
 aead_decrypt(buffer_t *ciphertext, cipher_ctx_t *cipher_ctx, size_t capacity)
 {
-    int err             = CRYPTO_ERROR;
+    int err             = CRYPTO_OK;
     static buffer_t tmp = { 0, 0, 0, NULL };
 
     cipher_t *cipher = cipher_ctx->cipher;
@@ -662,15 +668,22 @@ aead_decrypt(buffer_t *ciphertext, cipher_ctx_t *cipher_ctx, size_t capacity)
 
     size_t plen = 0;
     while (cipher_ctx->chunk->len > 0) {
-        size_t chunk_clen  = cipher_ctx->chunk->len;
+        size_t chunk_clen = cipher_ctx->chunk->len;
         size_t chunk_plen = 0;
         err = aead_chunk_decrypt(cipher_ctx,
                                  (uint8_t *)plaintext->data + plen,
                                  (uint8_t *)cipher_ctx->chunk->data,
                                  cipher_ctx->nonce,
                                  &chunk_plen, &chunk_clen,
-                                 cipher->nonce_len, tag_len);
-        if (err) return err;
+                                 nonce_len, tag_len);
+        if (err == CRYPTO_ERROR) {
+            return err;
+        } else if (err == CRYPTO_NEED_MORE) {
+            if (plen == 0)
+                return err;
+            else
+                break;
+        }
         cipher_ctx->chunk->len = chunk_clen;
         plen                  += chunk_plen;
     }
